@@ -27,8 +27,8 @@ export function modalHtml() {
       ],
       state.homeworkClass
     )}${inputField('日期', 'date', state.homeworkDate || today, 'date')}<div class="local-actions-row">${button('取消', 'close-modal')}${button('打开反馈', 'submit-form', 'primary')}</div></form>`;
-  if (modal.type === 'todos')
-    body = `<form data-form="todo">${inputField('事项内容', 'text', '', 'text', 'required')}${inputField('截止日期', 'due', today, 'date')}<div class="local-actions-row">${button('取消', 'close-modal')}${button('保存待办', 'submit-form', 'primary')}</div></form>`;
+  if (modal.type === 'todo')
+    body = `<form data-form="todo">${inputField('事项内容', 'text', '', 'text', 'required')}${inputField('计划日期（留空则待确认）', 'plannedDate', '', 'date')}<div class="local-actions-row">${button('取消', 'close-modal')}${button('保存待办', 'submit-form', 'primary')}</div></form>`;
   if (modal.type === 'dictation')
     body = `<form data-form="dictation">${selectField(
       '班级',

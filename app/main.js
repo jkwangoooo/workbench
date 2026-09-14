@@ -36,6 +36,8 @@ import { schedulePage } from './pages/schedule.js';
 import { testsPage } from './pages/tests.js';
 import { violationsPage, violationsDate, violationsView } from './pages/violations.js';
 import { interviewPage, interviewClass, interviewView } from './pages/interviews.js';
+import { todosPage } from './pages/todos.js';
+import { normalizeTodos, inWindow } from './domain/todos.js';
 import { shell } from './ui/shell.js';
 
 const root = document.querySelector('#local-app');
@@ -56,17 +58,19 @@ function render() {
                 ? homeworkPage()
                 : state.page === 'interviews'
                   ? interviewPage()
-                  : state.page === 'dictation'
-                    ? dictationPage()
-                    : state.page === 'tests'
-                      ? testsPage()
-                      : state.page === 'planning'
-                        ? planningPage()
-                        : state.page === 'resources'
-                          ? resourcesPage()
-                          : state.page === 'data'
-                            ? dataPage()
-                            : prepPage();
+                  : state.page === 'todos'
+                    ? todosPage()
+                    : state.page === 'dictation'
+                      ? dictationPage()
+                      : state.page === 'tests'
+                        ? testsPage()
+                        : state.page === 'planning'
+                          ? planningPage()
+                          : state.page === 'resources'
+                            ? resourcesPage()
+                            : state.page === 'data'
+                              ? dataPage()
+                              : prepPage();
   root.innerHTML = shell(content);
 }
 function openModal(type, title, extra = {}) {
@@ -677,7 +681,8 @@ document.addEventListener('click', (event) => {
     state.scheduleType = action === 'temporary-schedule' ? 'temporary' : 'class';
     return render();
   }
-  if (action === 'todos') return openModal('todos', '新增待办');
+  if (action === 'todos') return goToPage('todos');
+  if (action === 'new-todo') return openModal('todo', '新增待办');
   if (action === 'new-note') return openModal('note', '记录快捷内容');
   if (action === 'violations') return goToPage('violations');
   if (action === 'save-violations') return saveViolations();
@@ -822,11 +827,15 @@ document.addEventListener('submit', (event) => {
     state.page = 'homework';
     closeModal();
   } else if (type === 'todo') {
+    const content = values.text.trim();
+    if (!content) return toast('待办内容不能为空');
+    const plannedDate = values.plannedDate || null; // 空 = 待确认
+    const nowIso = new Date().toISOString();
     const items = read(LOCAL_KEYS.todos, []);
-    items.push({ id: uid('todo'), text: values.text.trim(), due: values.due, done: false });
+    items.push({ id: uid('todo'), content, plannedDate, status: 'pending', completedAt: null, createdAt: nowIso, updatedAt: nowIso });
     write(LOCAL_KEYS.todos, items);
     closeModal();
-    toast('待办已保存');
+    toast(plannedDate ? '待办已安排到 ' + plannedDate : '待办已加入待确认');
   } else if (type === 'dictation') {
     const all = read(LOCAL_KEYS.dictation, []);
     const item = { id: uid('dictation'), classNumber: values.classNumber, title: values.title.trim(), columns: [], targets: {}, scores: {} };
@@ -895,9 +904,30 @@ document.addEventListener('submit', (event) => {
 document.addEventListener('change', (event) => {
   const el = event.target;
   if (el.matches('[data-todo-done]')) {
-    const items = read(LOCAL_KEYS.todos, []);
+    const items = normalizeTodos(read(LOCAL_KEYS.todos, []));
     const item = items.find((entry) => entry.id === el.dataset.todoDone);
-    if (item) item.done = el.checked;
+    if (item) {
+      const nowIso = new Date().toISOString();
+      item.status = el.checked ? 'completed' : 'pending';
+      item.completedAt = el.checked ? nowIso : null;
+      item.updatedAt = nowIso;
+    }
+    write(LOCAL_KEYS.todos, items);
+    render();
+  }
+  if (el.matches('[data-todo-schedule]')) {
+    const dateStr = el.value;
+    if (!dateStr) return; // 没选具体日期，忽略
+    if (!inWindow(dateStr)) {
+      toast('只能安排到今天起 14 天内的日期');
+      return;
+    }
+    const items = normalizeTodos(read(LOCAL_KEYS.todos, []));
+    const item = items.find((entry) => entry.id === el.dataset.todoSchedule);
+    if (item) {
+      item.plannedDate = dateStr;
+      item.updatedAt = new Date().toISOString();
+    }
     write(LOCAL_KEYS.todos, items);
     render();
   }

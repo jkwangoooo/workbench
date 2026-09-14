@@ -144,6 +144,7 @@ function changeHomeworkRating(studentId, value) {
 
 const PAGES = [
   ['dashboard', '今日看板'],
+  ['todos', '每日待办'],
   ['class-management', '8班班级管理'],
   ['roster', '姓名目录'],
   ['schedule', '课程表'],
@@ -579,4 +580,65 @@ test('面谈页有未保存修改时切页面要先确认', { skip: SKIP }, asyn
   clickOn({ action: 'discard-edits' });
   assert.ok(root.innerHTML.includes('今日看板'), '放弃修改后应真的离开');
   assert.equal(storage.get('teacher-local-interviews'), undefined, '放弃修改不该写存储');
+});
+
+// ── 每日待办页渲染测试 ──
+
+test('待办页渲染 14 天窗口和待确认区', { skip: SKIP }, async () => {
+  await bootstrap();
+  clickOn({ page: 'todos' });
+  assert.ok(root.innerHTML.includes('每日待办'), '应渲染待办页标题');
+  assert.ok(root.innerHTML.includes('待确认'), '应有待确认区');
+  assert.ok(root.innerHTML.includes('新增待办'), '应有新增待办入口');
+  // 14 天窗口：应有「（今天）」标记
+  assert.ok(root.innerHTML.includes('（今天）'), '今天应有标记');
+});
+
+test('待办页逾期未完成自动移入待确认', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { today } = await import('../../app/core/date.js');
+  // 预存一条昨天的未完成待办（旧形态）
+  storage.set('teacher-local-todos', JSON.stringify([{ id: 'old-1', text: '过期待办', due: '2020-01-01', done: false }]));
+
+  clickOn({ page: 'todos' });
+  // 逾期整理后应写入新形态，plannedDate 清空
+  const stored = JSON.parse(storage.get('teacher-local-todos'));
+  assert.equal(stored[0].plannedDate, null, '逾期项应移入待确认');
+  assert.equal(stored[0].status, 'pending');
+});
+
+test('待办页新增待办并勾选完成', { skip: SKIP }, async () => {
+  await bootstrap();
+  clickOn({ page: 'todos' });
+
+  // 通过表单提交新增（走 main.js 的 submit-form 处理）
+  // 这里直接验证读写的闭环：先写入一条，再勾选
+  storage.set(
+    'teacher-local-todos',
+    JSON.stringify([{ id: 'todo-x', content: '备课', plannedDate: null, status: 'pending', completedAt: null, createdAt: 'x', updatedAt: 'x' }])
+  );
+  clickOn({ page: 'todos' });
+  assert.ok(root.innerHTML.includes('备课'), '待确认区应显示待办内容');
+
+  // 勾选完成
+  fire('change', { dataset: { todoDone: 'todo-x' }, checked: true, matches: (s) => s === '[data-todo-done]' });
+  const stored = JSON.parse(storage.get('teacher-local-todos'));
+  assert.equal(stored[0].status, 'completed', '勾选后应标记完成');
+  assert.ok(stored[0].completedAt, '完成应有 completedAt');
+});
+
+test('待办页选日期安排待确认事项', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { today } = await import('../../app/core/date.js');
+  storage.set(
+    'teacher-local-todos',
+    JSON.stringify([{ id: 'todo-y', content: '安排这件事', plannedDate: null, status: 'pending', completedAt: null, createdAt: 'x', updatedAt: 'x' }])
+  );
+  clickOn({ page: 'todos' });
+  assert.ok(root.innerHTML.includes('data-todo-schedule="todo-y"'), '待确认项应有安排日期下拉');
+
+  // 选今天作为日期
+  fire('change', { dataset: { todoSchedule: 'todo-y' }, value: today, matches: (s) => s === '[data-todo-schedule]' });
+  const stored = JSON.parse(storage.get('teacher-local-todos'));
+  assert.equal(stored[0].plannedDate, today, '安排后应写入计划日期');
 });

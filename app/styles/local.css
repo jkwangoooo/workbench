@@ -946,6 +946,52 @@ button {
   min-width: 0;
 }
 
+/* 每日待办页（需求 §3）：14 天窗口 + 待确认区 */
+.local-todo-window {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.local-todo-day {
+  display: flex;
+  flex-direction: column;
+}
+.local-todo-day .local-panel-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.local-todo-day .local-panel-title h3 {
+  font-size: 14px;
+}
+.local-todo-pending-panel {
+  margin-bottom: 12px;
+}
+.local-todo-pending-panel .local-panel-title small {
+  color: var(--muted, #777);
+  font-size: 12px;
+}
+.local-todo-pending {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.local-todo-schedule {
+  min-width: 130px;
+}
+.local-todo-done span {
+  text-decoration: line-through;
+  color: var(--muted, #888);
+}
+.local-todo-day .local-todos {
+  margin-top: 4px;
+}
+
 @media (max-width: 640px) {
   .local-shell {
     display: block;

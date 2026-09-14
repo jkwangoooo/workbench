@@ -4,7 +4,7 @@
 
 import { LOCAL_KEYS, class7Name, class8Name } from '../core/constants.js';
 import { today } from '../core/date.js';
-import { attr, button, empty, esc, head, panel, selectField } from '../core/dom.js';
+import { attr, button, empty, esc, head, panel } from '../core/dom.js';
 import { rosterFor } from '../core/roster.js';
 import { state } from '../core/state.js';
 import { read } from '../core/storage.js';
@@ -18,6 +18,14 @@ import {
   pendingInterviewChanges,
   weekLabel
 } from '../domain/interviews.js';
+
+/** 本地时区格式化 YYYY-MM-DD（避免 toISOString 的 UTC 跨日问题）。 */
+function localDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
 
 export const interviewClass = () => state.interviewClass || '8';
 
@@ -130,17 +138,27 @@ function toolbar(classNumber, weekStart) {
   for (let i = -8; i <= 3; i++) {
     const m = new Date(currentMonday + 'T00:00:00');
     m.setDate(m.getDate() + i * 7);
-    const ms = m.toISOString().slice(0, 10);
+    const ms = localDateStr(m);
     weekOptions.push([ms, weekLabel(ms)]);
   }
   return (
     '<div class="local-interview-bar">' +
-    '<div class="local-field">' +
-    selectField('班级', 'interview-class', classOptions, classNumber) +
-    '</div>' +
-    '<div class="local-field">' +
-    selectField('工作周', 'interview-week', weekOptions, weekStart) +
-    '</div>' +
+    '<div class="local-field"><label>班级</label><select class="local-select" data-interview-class>' +
+    classOptions
+      .map(
+        ([value, label]) =>
+          '<option value="' + attr(value) + '"' + (String(value) === String(classNumber) ? ' selected' : '') + '>' + esc(label) + '</option>'
+      )
+      .join('') +
+    '</select></div>' +
+    '<div class="local-field"><label>工作周</label><select class="local-select" data-interview-week>' +
+    weekOptions
+      .map(
+        ([value, label]) =>
+          '<option value="' + attr(value) + '"' + (String(value) === String(weekStart) ? ' selected' : '') + '>' + esc(label) + '</option>'
+      )
+      .join('') +
+    '</select></div>' +
     button('回到本周', 'interview-this-week', 'small') +
     '<span class="local-interview-tip">未面谈学生排在上方；取消勾选不会删除备注。</span></div>'
   );

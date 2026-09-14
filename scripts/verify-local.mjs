@@ -23,6 +23,7 @@ const VIOLATION_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const HOMEWORK_TEXT = '第一课词语抄写';
 const HOMEWORK_TEXT_2 = '第二课背诵';
 const HOMEWORK_NOTE = '没带作业本';
+const INTERVIEW_NOTE = '面谈表现积极';
 const LEGACY_HOMEWORK = { '8:2026-09-14': { 'local-8-1': { rating: '优', note: '' } } };
 const BACKUP_FILE_RE = /^workbench-backup-\d{8}-\d{4}\.json$/;
 
@@ -347,7 +348,7 @@ async function main() {
     const todosInBackup = (backup.data && backup.data[todosKey]) || [];
     record(
       '备份带走刚记的待办，且不含本机专用键',
-      todosInBackup.some((item) => item.text === TODO_TEXT) && !backupKeys.includes(metaKey),
+      todosInBackup.some((item) => (item.content ?? item.text) === TODO_TEXT) && !backupKeys.includes(metaKey),
       `数据键 ${backupKeys.length} 个，待办 ${todosInBackup.length} 条，含 meta=${backupKeys.includes(metaKey)}`
     );
 
@@ -662,6 +663,93 @@ async function main() {
       '其余作业条目不受影响',
       otherSlots === 0,
       `剩余总任务数=${otherSlots}（清空前只有 1 条有内容的任务）`
+    );
+
+    // 6.6 学生面谈（L3）：工作周、勾选+备注、整批保存成 v1、取消勾选保留备注、清空即删除
+    await click('学生面谈');
+    const ivShell = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          hasSave: !!window.__m.byText('保存本周面谈'),
+          hasClass: !!document.querySelector('[data-interview-class]'),
+          hasWeek: !!document.querySelector('[data-interview-week]'),
+          rows: document.querySelectorAll('[data-interview-check]').length,
+        })
+      `)
+    );
+    record(
+      '面谈页有班级/工作周选择、保存按钮与全班勾选行',
+      ivShell.hasSave && ivShell.hasClass && ivShell.hasWeek && ivShell.rows > 10,
+      `勾选行=${ivShell.rows}`
+    );
+
+    // 勾选第一名 + 备注
+    const ivCheckDoc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const ivCheckNodes = await cdp.send('DOM.querySelectorAll', { nodeId: ivCheckDoc.root.nodeId, selector: '[data-interview-check]' });
+    await cdp.send('DOM.focus', { nodeId: ivCheckNodes.nodeIds[0] });
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+    await sleep(300);
+    const ivNoteDoc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const ivNoteNodes = await cdp.send('DOM.querySelectorAll', { nodeId: ivNoteDoc.root.nodeId, selector: '[data-interview-note]' });
+    await cdp.send('DOM.focus', { nodeId: ivNoteNodes.nodeIds[0] });
+    await cdp.send('Input.insertText', { text: INTERVIEW_NOTE });
+    await sleep(400);
+    await click('保存本周面谈');
+    const savedIv = JSON.parse(await evaluate(`localStorage.getItem('teacher-local-interviews')`));
+    const ivRec = savedIv && Array.isArray(savedIv.interviews) ? savedIv.interviews.find((r) => r.completed === true) : null;
+    record(
+      '面谈勾选+备注保存成 v1 数组',
+      savedIv && savedIv.version === 1 && ivRec && ivRec.note === INTERVIEW_NOTE,
+      `version=${savedIv?.version}, 备注=${ivRec?.note}`
+    );
+
+    // 6.7 每日待办（L4）：14 天窗口 + 待确认区 + 逾期整理 + 选日期安排
+    // 先塞一条逾期未完成的旧形态待办，进待办页应自动移入待确认
+    await evaluate(`
+      localStorage.setItem('teacher-local-todos', JSON.stringify([
+        { id: 'todo-overdue', text: '过期待办验收', due: '2020-01-01', done: false }
+      ]));
+      'seeded'
+    `);
+    await click('每日待办');
+    const todoPage = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          title: (document.querySelector('.local-title') || {}).textContent || '',
+          hasPending: !!document.querySelector('[data-todo-schedule]'),
+          hasToday: document.body.innerText.includes('（今天）'),
+        })
+      `)
+    );
+    record(
+      '待办页有 14 天窗口与待确认区',
+      todoPage.title === '每日待办' && todoPage.hasPending && todoPage.hasToday,
+      `标题=${todoPage.title}, 待确认下拉=${todoPage.hasPending}`
+    );
+    const sweptTodos = JSON.parse(await evaluate(`localStorage.getItem('teacher-local-todos')`));
+    record(
+      '逾期未完成待办打开页面时自动移入待确认',
+      Array.isArray(sweptTodos) && sweptTodos[0] && sweptTodos[0].plannedDate === null && sweptTodos[0].content === '过期待办验收',
+      `plannedDate=${sweptTodos?.[0]?.plannedDate}`
+    );
+
+    // 选日期安排：把待确认项安排到今天
+    await evaluate(`
+      (() => {
+        const sel = document.querySelector('[data-todo-schedule]');
+        if (!sel) return 'NO_SEL';
+        sel.value = ${JSON.stringify(new Date().toISOString().slice(0, 10))};
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        return 'OK';
+      })()
+    `);
+    await sleep(700);
+    const scheduledTodos = JSON.parse(await evaluate(`localStorage.getItem('teacher-local-todos')`));
+    record(
+      '待确认项可选日期安排到指定日',
+      Array.isArray(scheduledTodos) && scheduledTodos[0] && scheduledTodos[0].plannedDate !== null,
+      `plannedDate=${scheduledTodos?.[0]?.plannedDate}`
     );
 
     // 7. 旧学生 ID 自动迁移：把旧格式数据塞进存储，并抹掉迁移标记

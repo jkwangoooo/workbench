@@ -5,7 +5,13 @@ import { modalHtml } from './modal.js';
 
 export function nav() {
   const sections = [
-    ['工作台', [['dashboard', '今日看板']]],
+    [
+      '工作台',
+      [
+        ['dashboard', '今日看板'],
+        ['todos', '每日待办']
+      ]
+    ],
     [
       '班级业务',
       [
@@ -45,6 +51,7 @@ export function shell(content) {
   const title =
     {
       dashboard: '今日看板',
+      todos: '每日待办',
       'class-management': '8班班级管理',
       roster: '姓名目录',
       violations: '违纪记录',

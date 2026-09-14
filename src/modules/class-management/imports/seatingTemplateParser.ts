@@ -1,0 +1,10 @@
+import { validateSeatingLayout, type SeatingLayout } from '../domain/seating-layout.js';
+import { SEATING_TEMPLATE_COLUMNS, SEATING_TEMPLATE_ROWS, SEATING_TEMPLATE_VERSION, type StudentLookup, type WorkbookRows } from './templateContracts.js';
+export function parseSeatingTemplate(rows: WorkbookRows, students: StudentLookup): { layout?: SeatingLayout; errors: string[] } {
+  const errors: string[] = []; const meta = rows.slice(0, 2).map((row) => row.map((v) => String(v ?? '').trim()));
+  if (meta[0]?.join('|') !== '模板版本|1' || meta[1]?.join('|') !== `行数|${SEATING_TEMPLATE_ROWS}|列数|${SEATING_TEMPLATE_COLUMNS}`) return { errors: ['座次模板版本、行数或列数不匹配'] };
+  if (rows.length !== SEATING_TEMPLATE_ROWS + 2) errors.push(`座次模板必须包含${SEATING_TEMPLATE_ROWS}行座位数据`);
+  const cells: SeatingLayout['cells'] = []; const seen = new Set<string>();
+  rows.slice(2, 2 + SEATING_TEMPLATE_ROWS).forEach((row, rowIndex) => { if (row.length !== SEATING_TEMPLATE_COLUMNS) errors.push(`第${rowIndex + 3}行列数不匹配`); Array.from({ length: SEATING_TEMPLATE_COLUMNS }, (_, columnIndex) => { const raw = String(row[columnIndex] ?? '').trim(); const [kind, ...rest] = raw.split(':'); const normalized = kind.toLowerCase(); const cellKind = normalized === 'student' ? 'student' : normalized === 'empty' ? 'empty' : normalized === 'aisle' ? 'aisle' : normalized === 'podium' ? 'podium' : null; if (!cellKind) { errors.push(`第${rowIndex + 3}行第${columnIndex + 1}列结构标记未知`); return; } const name = rest.join(':').trim(); const student = cellKind === 'student' ? students.get(name) : undefined; if (cellKind === 'student' && !student) errors.push(`第${rowIndex + 3}行第${columnIndex + 1}列未知姓名：${name}`); if (student && seen.has(student.id)) errors.push(`学生重复出现在座次表：${name}`); if (student) seen.add(student.id); cells.push({ rowIndex, columnIndex, cellKind, studentId: student?.id, displayName: student?.displayName }); }); });
+  const layout = { templateVersion: SEATING_TEMPLATE_VERSION, rowCount: SEATING_TEMPLATE_ROWS, columnCount: SEATING_TEMPLATE_COLUMNS, cells }; errors.push(...validateSeatingLayout(layout)); return { layout: errors.length ? undefined : layout, errors };
+}

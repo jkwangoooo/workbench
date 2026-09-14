@@ -1,0 +1,10 @@
+import { validateGroupLayout, type GroupLayout } from '../domain/group-layout.js';
+import { GROUP_MEMBER_SLOTS, GROUP_TEMPLATE_VERSION, type StudentLookup, type WorkbookRows } from './templateContracts.js';
+export function parseGroupTemplate(rows: WorkbookRows, students: StudentLookup): { layout?: GroupLayout; errors: string[] } {
+  const errors: string[] = []; const header = rows[0]?.map((value) => String(value ?? '').trim()) || [];
+  const expected = ['组别', ...Array.from({ length: GROUP_MEMBER_SLOTS }, (_, i) => `成员${i + 1}`), '组长'];
+  if (header.join('|') !== expected.join('|')) return { errors: ['分组模板表头或列数不匹配'] };
+  const groups: GroupLayout['groups'] = []; const names = new Set<string>(); const groupIndexes = new Set<number>();
+  rows.slice(1).forEach((row, rowOffset) => { if (row.length !== expected.length) errors.push(`第${rowOffset + 2}行列数不匹配`); const groupIndex = Number(String(row[0] ?? '').trim()); if (!Number.isInteger(groupIndex) || groupIndex < 1) { errors.push(`第${rowOffset + 2}行组别无效`); return; } if (groupIndexes.has(groupIndex)) errors.push(`组别重复：${groupIndex}`); groupIndexes.add(groupIndex); const leader = String(row[5] ?? '').trim(); const members = Array.from({ length: GROUP_MEMBER_SLOTS }, (_, slotIndex) => ({ name: String(row[slotIndex + 1] ?? '').trim(), slotIndex })).filter(({ name }) => Boolean(name)).map(({ name, slotIndex }) => { const student = students.get(name); if (!student) errors.push(`第${rowOffset + 2}行未知姓名：${name}`); else if (names.has(student.id)) errors.push(`第${rowOffset + 2}行学生重复：${name}`); else names.add(student.id); return { studentId: student?.id || `invalid-${rowOffset}-${slotIndex}`, displayName: name, groupIndex, slotIndex, isLeader: name === leader }; }); if (leader && !members.some((member) => member.displayName === leader)) errors.push(`第${rowOffset + 2}行组长不是本组成员：${leader}`); groups.push({ groupIndex, members }); });
+  const layout = { templateVersion: GROUP_TEMPLATE_VERSION, groups }; errors.push(...validateGroupLayout(layout)); return { layout: errors.length ? undefined : layout, errors };
+}

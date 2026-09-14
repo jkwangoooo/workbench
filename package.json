@@ -2,19 +2,22 @@
   "name": "teacher-workbench",
   "private": true,
   "version": "0.1.0",
-  "description": "Teacher workbench TypeScript foundation with a legacy static prototype baseline.",
+  "description": "班主任工作台：本地版（app/，零构建）+ 归档的云端版（legacy-cloud/）+ TypeScript 云端基础（src/）。",
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/copy-browser-deps.mjs",
-    "dev": "npm run build && python3 -m http.server 4173",
-    "format:check": "node tests/format-check.mjs",
+    "dev": "npm run build && node scripts/serve.mjs",
+    "serve": "node scripts/serve.mjs",
+    "format": "prettier --write app",
+    "format:check": "node tests/format-check.mjs && prettier --check app",
     "typecheck": "tsc --noEmit",
     "typecheck:contracts": "node tests/typecheck.mjs",
     "test": "node --test tests/unit/*.test.mjs",
-    "syntax": "node --check app.js",
+    "syntax": "node scripts/check-modules.mjs",
     "check": "npm run format:check && npm run typecheck && npm run typecheck:contracts && npm test && npm run syntax"
   },
   "devDependencies": {
+    "prettier": "^3.9.6",
     "typescript": "^5.9.3",
     "xlsx": "^0.18.5"
   },

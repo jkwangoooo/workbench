@@ -3,6 +3,7 @@ import { legacyIdMap } from '../core/roster.js';
 import { read, write } from '../core/storage.js';
 import { collectData } from './backup.js';
 import { feedbackIdOf, isHomeworkV2 } from './homework.js';
+import { interviewIdOf, isInterviewV1 } from './interviews.js';
 
 export const STUDENT_ID_SCHEMA = 'student-id-v1';
 
@@ -66,6 +67,24 @@ function remapHomework(input, map) {
     return { ...row, studentId: nextId, id: feedbackIdOf(row.homeworkId, nextId) };
   });
   return { value: { ...input, feedback }, changed };
+}
+
+// 面谈是记录数组，每条带 studentId / classNumber / weekStart。
+export function remapInterviews(input, map) {
+  if (!isInterviewV1(input)) return { value: input, changed: 0 };
+  let changed = 0;
+  const interviews = (input.interviews || []).map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    const nextId = map.get(row.studentId);
+    if (!nextId || nextId === row.studentId) return row;
+    changed += 1;
+    return {
+      ...row,
+      studentId: nextId,
+      id: interviewIdOf(row.classNumber, nextId, row.weekStart)
+    };
+  });
+  return { value: { ...input, interviews }, changed };
 }
 
 function remapSheetFields(sheet, map) {
@@ -135,6 +154,7 @@ export function remapStudentIds(data, map = legacyIdMap) {
   };
 
   if (data[LOCAL_KEYS.homework]) next[LOCAL_KEYS.homework] = take(remapHomework(data[LOCAL_KEYS.homework], map));
+  if (data[LOCAL_KEYS.interviews]) next[LOCAL_KEYS.interviews] = take(remapInterviews(data[LOCAL_KEYS.interviews], map));
   for (const key of [LOCAL_KEYS.tests, LOCAL_KEYS.dictation]) {
     if (Array.isArray(data[key])) next[key] = take(remapSheets(data[key], map));
   }

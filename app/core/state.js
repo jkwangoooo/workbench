@@ -17,6 +17,11 @@ export const state = {
   homeworkDraft: null,
   homeworkError: null,
   homeworkPendingDelete: null,
+  // 面谈页（需求 §5）：班级、工作周（周一日期）、草稿、保存失败原因
+  interviewClass: '8',
+  interviewWeekStart: null,
+  interviewDraft: null,
+  interviewError: null,
   dictationClass: '8',
   selectedDictation: null,
   testClass: '8',

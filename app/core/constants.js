@@ -11,7 +11,8 @@ export const LOCAL_KEYS = {
   resources: 'teacher-local-resources',
   groupLayout: 'teacher-local-group-layout',
   seatingLayout: 'teacher-local-seating-layout',
-  meta: 'teacher-local-meta'
+  meta: 'teacher-local-meta',
+  interviews: 'teacher-local-interviews'
 };
 
 // 备份白名单：只有登记在这里的键会随「导出备份」走，导入时也只恢复这些键。
@@ -28,7 +29,8 @@ export const EXPORT_KEYS = [
   LOCAL_KEYS.planning,
   LOCAL_KEYS.resources,
   LOCAL_KEYS.groupLayout,
-  LOCAL_KEYS.seatingLayout
+  LOCAL_KEYS.seatingLayout,
+  LOCAL_KEYS.interviews
 ];
 
 // 仅本机有效、刻意不随备份迁移的键（迁移标记、上次导出时间等）。

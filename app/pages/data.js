@@ -12,6 +12,7 @@ const RECORDS = [
   [LOCAL_KEYS.notes, '快捷记录', '条'],
   [LOCAL_KEYS.violations, '违纪记录', '条'],
   [LOCAL_KEYS.homework, '作业与反馈', '条'],
+  [LOCAL_KEYS.interviews, '面谈记录', '条'],
   [LOCAL_KEYS.dictation, '听写阶段', '个'],
   [LOCAL_KEYS.tests, '单元测试', '次'],
   [LOCAL_KEYS.planning, '课程单元', '个'],
@@ -31,8 +32,15 @@ function homeworkCount(value) {
   return Object.values(value).reduce((sum, group) => sum + (group && typeof group === 'object' ? Object.keys(group).length : 0), 0);
 }
 
+// 面谈是记录数组，直接计条数。
+function interviewCount(value) {
+  if (!value || !Array.isArray(value.interviews)) return 0;
+  return value.interviews.length;
+}
+
 function countFor(key, value) {
   if (key === LOCAL_KEYS.homework) return homeworkCount(value);
+  if (key === LOCAL_KEYS.interviews) return interviewCount(value);
   return SINGLE_RECORDS.includes(key) ? (value ? 1 : 0) : countRecords(value);
 }
 

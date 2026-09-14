@@ -5,6 +5,7 @@ import { state } from './core/state.js';
 import { read, uid, write } from './core/storage.js';
 import { backupFilename, buildBackup, collectData, validateBackup } from './domain/backup.js';
 import { HOMEWORK_DATE_RE, HOMEWORK_SCHEMA, normalizeHomework, planSave } from './domain/homework.js';
+import { INTERVIEW_SCHEMA, interviewIdOf, isInterviewV1, mondayOf, normalizeInterviews, planSaveInterview } from './domain/interviews.js';
 import { parseGroup } from './domain/group-template.js';
 import { migrateStudentIds } from './domain/migrate.js';
 import { parseSeating } from './domain/seating-template.js';
@@ -34,6 +35,7 @@ import { rosterPage } from './pages/roster.js';
 import { schedulePage } from './pages/schedule.js';
 import { testsPage } from './pages/tests.js';
 import { violationsPage, violationsDate, violationsView } from './pages/violations.js';
+import { interviewPage, interviewClass, interviewView } from './pages/interviews.js';
 import { shell } from './ui/shell.js';
 
 const root = document.querySelector('#local-app');
@@ -52,17 +54,19 @@ function render() {
               ? violationsPage()
               : state.page === 'homework'
                 ? homeworkPage()
-                : state.page === 'dictation'
-                  ? dictationPage()
-                  : state.page === 'tests'
-                    ? testsPage()
-                    : state.page === 'planning'
-                      ? planningPage()
-                      : state.page === 'resources'
-                        ? resourcesPage()
-                        : state.page === 'data'
-                          ? dataPage()
-                          : prepPage();
+                : state.page === 'interviews'
+                  ? interviewPage()
+                  : state.page === 'dictation'
+                    ? dictationPage()
+                    : state.page === 'tests'
+                      ? testsPage()
+                      : state.page === 'planning'
+                        ? planningPage()
+                        : state.page === 'resources'
+                          ? resourcesPage()
+                          : state.page === 'data'
+                            ? dataPage()
+                            : prepPage();
   root.innerHTML = shell(content);
 }
 function openModal(type, title, extra = {}) {
@@ -73,6 +77,7 @@ function closeModal() {
   state.modal = null;
   state.pendingImport = null;
   state.homeworkPendingDelete = null;
+  state.interviewDraft = null;
   render();
 }
 function formData(form) {
@@ -166,6 +171,10 @@ function pendingLeave() {
     const count = homeworkView().pending.total;
     return count ? { count, detail: `作业反馈页有 ${count} 处还没保存的修改。继续编辑可以回去保存；放弃修改会丢掉这些改动。` } : null;
   }
+  if (state.page === 'interviews') {
+    const count = interviewView().pending;
+    return count ? { count, detail: `面谈页有 ${count} 处还没保存的修改。继续编辑可以回去保存；放弃修改会丢掉这些改动。` } : null;
+  }
   return null;
 }
 
@@ -223,6 +232,8 @@ function applyPendingNav() {
     state.homeworkClass = nav.classNumber;
     state.homeworkSlot = null;
   }
+  if (nav?.kind === 'interview-class') state.interviewClass = nav.classNumber;
+  if (nav?.kind === 'interview-week') state.interviewWeekStart = nav.weekStart;
   render();
 }
 
@@ -493,6 +504,124 @@ function resetHomework() {
   render();
 }
 
+// —— 面谈页（需求 §5）：工作周维度、勾选+备注、整批保存 ——
+
+function switchInterview({ classNumber, weekStart }) {
+  if (classNumber) state.interviewClass = classNumber;
+  if (weekStart) state.interviewWeekStart = weekStart;
+  state.interviewDraft = null;
+  state.interviewError = null;
+  render();
+}
+
+/** 获取/初始化当前班级+工作周的面谈草稿。 */
+function interviewDraftFor(view) {
+  const held = state.interviewDraft;
+  if (held && held.classNumber === view.classNumber && held.weekStart === view.weekStart) return held.drafts;
+  const drafts = new Map();
+  for (const s of view.students) {
+    const rec = view.saved.get(s.id);
+    drafts.set(s.id, { completed: rec?.completed === true, note: rec?.note || '' });
+  }
+  state.interviewDraft = { classNumber: view.classNumber, weekStart: view.weekStart, drafts };
+  return drafts;
+}
+
+function requestInterviewClass(classNumber) {
+  if (!['7', '8'].includes(String(classNumber)) || classNumber === state.interviewClass) return render();
+  const pending = pendingLeave();
+  if (pending) return offerNav({ kind: 'interview-class', classNumber }, '有未保存的面谈修改', pending.detail);
+  switchInterview({ classNumber });
+}
+
+function requestInterviewWeek(weekStart) {
+  if (!isValidWeekStart(weekStart) || weekStart === state.interviewWeekStart) return render();
+  const pending = pendingLeave();
+  if (pending) return offerNav({ kind: 'interview-week', weekStart }, '有未保存的面谈修改', pending.detail);
+  switchInterview({ weekStart });
+}
+
+/** 勾选/取消勾选「已面谈」。 */
+function editInterviewCheck(checkbox) {
+  const studentId = checkbox.dataset.interviewCheck;
+  const view = interviewView();
+  const drafts = interviewDraftFor(view);
+  const draft = drafts.get(studentId);
+  if (!draft) return;
+  draft.completed = checkbox.checked;
+  state.interviewError = null;
+  refreshInterviewMeta();
+}
+
+/** 备注输入。 */
+function editInterviewNote(input) {
+  const studentId = input.dataset.interviewNote;
+  const view = interviewView();
+  const drafts = interviewDraftFor(view);
+  const draft = drafts.get(studentId);
+  if (!draft) return;
+  draft.note = input.value;
+  state.interviewError = null;
+  refreshInterviewMeta();
+}
+
+/** 刷新面谈页的状态牌文字（不改输入框，沿用 L1/L2 教训）。 */
+function refreshInterviewMeta() {
+  const view = interviewView();
+  const meta = document.querySelector('[data-interview-meta]');
+  if (meta) meta.textContent = view.pending ? `${view.pending} 处修改未保存` : '';
+}
+
+/** 保存本周面谈：整批提交，校验不过或写入失败都一字不落盘。 */
+function saveInterviews() {
+  const view = interviewView();
+  const drafts = interviewDraftFor(view);
+  const now = new Date().toISOString();
+  const normalized = normalizeInterviews(read(LOCAL_KEYS.interviews, null));
+  const outcome = planSaveInterview(normalized, {
+    classNumber: view.classNumber,
+    weekStart: view.weekStart,
+    drafts,
+    students: view.students,
+    now
+  });
+
+  if (outcome.problems.length) {
+    state.interviewError = outcome.problems;
+    render();
+    return;
+  }
+
+  if (!outcome.summary.changed) {
+    toast('没有需要保存的修改');
+    render();
+    return;
+  }
+
+  try {
+    write(LOCAL_KEYS.interviews, { version: INTERVIEW_SCHEMA, interviews: outcome.interviews });
+  } catch (_) {
+    state.interviewError = [
+      { name: '浏览器本地存储', reason: '写入失败，本次改动一条都没保存（通常是存储写满了）。可以先到「数据与备份」页导出一份备份。' }
+    ];
+    render();
+    return;
+  }
+
+  state.interviewDraft = null;
+  state.interviewError = null;
+  toast('本周面谈已保存');
+  render();
+}
+
+function resetInterviews() {
+  const total = interviewView().pending;
+  state.interviewDraft = null;
+  state.interviewError = null;
+  toast(total ? `已放弃 ${total} 处未保存修改` : '没有未保存的修改');
+  render();
+}
+
 document.addEventListener('click', (event) => {
   const target = event.target.closest(
     '[data-page],[data-action],[data-management-tab],[data-resource-tab],[data-schedule-type],[data-select-student]'
@@ -572,6 +701,9 @@ document.addEventListener('click', (event) => {
   if (action === 'confirm-delete-homework') return confirmDeleteHomework();
   if (action.startsWith('homework-slot:')) return selectHomeworkSlot(Number(action.slice(14)));
   if (action === 'new-homework') return openModal('homework', '打开作业反馈');
+  if (action === 'save-interviews') return saveInterviews();
+  if (action === 'reset-interviews') return resetInterviews();
+  if (action === 'interview-this-week') return requestInterviewWeek(mondayOf(today));
   if (action === 'save-schedule') {
     if (target.classList.contains('disabled')) return;
     return saveSchedule();
@@ -634,6 +766,12 @@ document.addEventListener('change', (event) => {
     render();
   } else if (el.matches('[data-violation-picker]')) {
     requestViolationDate(el.value);
+  } else if (el.matches('[data-interview-class]')) {
+    requestInterviewClass(el.value);
+  } else if (el.matches('[data-interview-week]')) {
+    requestInterviewWeek(el.value);
+  } else if (el.matches('[data-interview-check]')) {
+    editInterviewCheck(el);
   } else if (el.matches('[data-template-file]')) {
     const file = el.files[0];
     if (!file) return;
@@ -657,6 +795,7 @@ document.addEventListener('input', (event) => {
   if (el.matches?.('[data-violation-student]')) editViolation(el);
   else if (el.matches?.('[data-homework-content]')) editHomeworkContent(el);
   else if (el.matches?.('[data-homework-note]')) editHomeworkNote(el);
+  else if (el.matches?.('[data-interview-note]')) editInterviewNote(el);
 });
 document.addEventListener('submit', (event) => {
   const form = event.target;

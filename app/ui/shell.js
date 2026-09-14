@@ -12,7 +12,8 @@ export function nav() {
         ['class-management', '8班班级管理'],
         ['roster', '姓名目录'],
         ['violations', '违纪记录'],
-        ['homework', '作业反馈']
+        ['homework', '作业反馈'],
+        ['interviews', '学生面谈']
       ]
     ],
     [
@@ -48,6 +49,7 @@ export function shell(content) {
       roster: '姓名目录',
       violations: '违纪记录',
       homework: '作业反馈',
+      interviews: '学生面谈',
       dictation: '听写成绩',
       tests: '单元测试',
       schedule: '课程表',

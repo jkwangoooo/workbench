@@ -855,6 +855,97 @@ button {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* —— 面谈页（需求 §5）—— */
+.local-interview-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border, #e2e4e8);
+  margin-bottom: 12px;
+}
+.local-interview-bar .local-field {
+  min-width: 140px;
+}
+.local-interview-tip {
+  font-size: 0.8rem;
+  color: var(--color-muted, #888);
+  margin-left: auto;
+}
+.local-interview-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--color-surface, #f8f9fb);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+.local-interview-progress-text {
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.local-interview-progress-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--color-border, #e2e4e8);
+  border-radius: 4px;
+  overflow: hidden;
+  max-width: 200px;
+}
+.local-interview-progress-fill {
+  height: 100%;
+  background: var(--color-primary, #2f8197);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+.local-interview-head {
+  display: grid;
+  grid-template-columns: 100px 90px minmax(0, 1fr);
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  color: var(--color-muted, #888);
+  border-bottom: 1px solid var(--color-border, #e2e4e8);
+  font-weight: 500;
+}
+.local-interview-list {
+  overflow-y: auto;
+}
+.local-interview-row {
+  display: grid;
+  grid-template-columns: 100px 90px minmax(0, 1fr);
+  gap: 6px;
+  padding: 5px 10px;
+  align-items: center;
+  border-bottom: 1px solid var(--color-border-light, #f0f1f3);
+}
+.local-interview-name {
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.local-interview-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.84rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.local-interview-check input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary, #2f8197);
+  cursor: pointer;
+}
+.local-interview-note {
+  min-width: 0;
+}
+
 @media (max-width: 640px) {
   .local-shell {
     display: block;
@@ -889,6 +980,29 @@ button {
   .local-homework-head,
   .local-homework-row {
     grid-template-columns: 88px 82px minmax(0, 1fr);
+  }
+  .local-interview-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .local-interview-bar .local-field {
+    min-width: unset;
+  }
+  .local-interview-tip {
+    margin-left: 0;
+    text-align: center;
+  }
+  .local-interview-progress {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .local-interview-progress-bar {
+    max-width: none;
+    width: 100%;
+  }
+  .local-interview-head,
+  .local-interview-row {
+    grid-template-columns: 80px 70px minmax(0, 1fr);
   }
   .local-sidebar {
     width: auto;

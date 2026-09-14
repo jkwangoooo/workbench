@@ -99,6 +99,10 @@ async function bootstrap() {
     violationsDraft: null,
     violationsSessionOrder: [],
     violationsError: null,
+    interviewClass: '8',
+    interviewWeekStart: null,
+    interviewDraft: null,
+    interviewError: null,
     pendingNav: null,
     modal: null
   });
@@ -145,6 +149,7 @@ const PAGES = [
   ['schedule', '课程表'],
   ['violations', '违纪记录'],
   ['homework', '作业反馈'],
+  ['interviews', '学生面谈'],
   ['dictation', '听写成绩'],
   ['tests', '单元测试'],
   ['planning', '课程规划'],
@@ -440,4 +445,138 @@ test('旧版作业反馈数据不丢：认出来但不参与当前显示', { ski
   assert.ok(root.innerHTML.includes('旧版本留下的作业反馈'), '要如实提示有多少条历史反馈没作业内容可挂');
   assert.ok(!root.innerHTML.includes('data-homework-rating'), '孤立的旧反馈不该混进反馈表');
   assert.equal(JSON.parse(storage.get('teacher-local-homework'))['8:2026-09-14'][roster8[0].id].note, '旧版备注', '看一眼不该改动数据');
+});
+
+// ── 面谈页渲染测试 ──
+
+function clickInterviewCheck(studentId, checked) {
+  fire('change', { dataset: { interviewCheck: studentId }, checked, matches: (s) => s === '[data-interview-check]' });
+}
+function typeInterviewNote(studentId, value) {
+  fire('input', { dataset: { interviewNote: studentId }, value, matches: (s) => s === '[data-interview-note]' });
+}
+
+test('面谈页能渲染全班列表，含勾选框与备注栏', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+
+  clickOn({ page: 'interviews' });
+  assert.ok(root.innerHTML.includes('学生面谈'), '应渲染面谈页标题');
+  assert.ok(root.innerHTML.includes('保存本周面谈'), '应有保存按钮');
+  assert.ok(root.innerHTML.includes('已面谈'), '应有进度统计文字');
+
+  const checks = root.innerHTML.match(/data-interview-check=/g) || [];
+  assert.equal(checks.length, roster8.length, '全班每人都该有勾选框');
+  const notes = root.innerHTML.match(/data-interview-note=/g) || [];
+  assert.equal(notes.length, roster8.length, '全班每人都该有备注输入框');
+});
+
+test('面谈页勾选+备注保存成 v1 数组，重进读回', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  clickOn({ page: 'interviews' });
+
+  clickInterviewCheck(roster8[0].id, true);
+  typeInterviewNote(roster8[0].id, '表现积极');
+  // 重渲染确认草稿不丢
+  clickOn({ page: 'interviews' });
+  assert.ok(root.innerHTML.includes('value="表现积极"'), '重渲染后备注草稿不应丢');
+  assert.ok(root.innerHTML.includes('处修改未保存'), '编辑后应提示未保存');
+
+  clickOn({ action: 'save-interviews' });
+  const stored = JSON.parse(storage.get('teacher-local-interviews'));
+  assert.equal(stored.version, 1, '存储形态应为 v1');
+  assert.ok(stored.interviews.length >= 1, '至少有一条记录');
+  const rec = stored.interviews.find((r) => r.studentId === roster8[0].id);
+  assert.ok(rec, '应找到该学生的记录');
+  assert.equal(rec.completed, true);
+  assert.equal(rec.note, '表现积极');
+  assert.ok(rec.id && rec.createdAt && rec.updatedAt, '记录应带 id 和时间戳');
+  assert.ok(!root.innerHTML.includes('处修改未保存'), '保存后不应提示未保存');
+
+  // 重进页面读回
+  clickOn({ page: 'dashboard' });
+  clickOn({ page: 'interviews' });
+  assert.ok(root.innerHTML.includes('value="表现积极"'), '重新进来应读回已保存的备注');
+});
+
+test('面谈页已面谈学生有 checked，未面谈没有', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  const { today } = await import('../../app/core/date.js');
+  const { INTERVIEW_SCHEMA, mondayOf, normalizeInterviews, planSaveInterview } = await import('../../app/domain/interviews.js');
+  const weekStart = mondayOf(today);
+  let data = normalizeInterviews(null);
+  data = planSaveInterview(data, {
+    classNumber: '8',
+    weekStart,
+    drafts: new Map([[roster8[0].id, { completed: true, note: 'ok' }]]),
+    students: roster8,
+    now: new Date().toISOString()
+  });
+  // planSaveInterview 返回裸数组，需包装成 v1 容器才能被 normalizeInterviews 正确读回
+  storage.set('teacher-local-interviews', JSON.stringify({ version: INTERVIEW_SCHEMA, interviews: data.interviews }));
+
+  clickOn({ page: 'interviews' });
+  assert.ok(root.innerHTML.includes('data-interview-check="' + roster8[0].id + '" checked'), '已面谈学生应有 checked');
+  const uncheckedPattern = 'data-interview-check="' + roster8[1].id + '"';
+  const idx = root.innerHTML.indexOf(uncheckedPattern);
+  assert.ok(idx > -1, '应有未面谈学生的行');
+  const afterIdx = root.innerHTML.indexOf('>', idx + uncheckedPattern.length);
+  const around = root.innerHTML.slice(idx, afterIdx + 20);
+  assert.ok(!around.includes('checked'), '未面谈学生不应有 checked');
+});
+
+test('面谈页取消勾选保留备注，清空备注+未勾选=删除', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  const { today } = await import('../../app/core/date.js');
+  const { INTERVIEW_SCHEMA, mondayOf, normalizeInterviews, planSaveInterview } = await import('../../app/domain/interviews.js');
+  const weekStart = mondayOf(today);
+  // 预存一条已面谈记录
+  let data = normalizeInterviews(null);
+  data = planSaveInterview(data, {
+    classNumber: '8',
+    weekStart,
+    drafts: new Map([[roster8[0].id, { completed: true, note: '之前聊过' }]]),
+    students: roster8,
+    now: new Date().toISOString()
+  });
+  storage.set('teacher-local-interviews', JSON.stringify({ version: INTERVIEW_SCHEMA, interviews: data.interviews }));
+
+  clickOn({ page: 'interviews' });
+  // 取消勾选但保留备注 → 保存后 completed=false, note 还在
+  clickInterviewCheck(roster8[0].id, false);
+  typeInterviewNote(roster8[0].id, '还要观察');
+  clickOn({ action: 'save-interviews' });
+  let stored = JSON.parse(storage.get('teacher-local-interviews'));
+  const rec = stored.interviews.find((r) => r.studentId === roster8[0].id);
+  assert.ok(rec, '取消勾选但保留备注时记录不应被删除');
+  assert.equal(rec.completed, false);
+  assert.equal(rec.note, '还要观察');
+
+  // 清空备注且不勾选 → 删除
+  typeInterviewNote(roster8[0].id, '');
+  clickOn({ action: 'save-interviews' });
+  stored = JSON.parse(storage.get('teacher-local-interviews'));
+  assert.equal(stored.interviews.length, 0, '未勾选+备注空应删除记录');
+});
+
+test('面谈页有未保存修改时切页面要先确认', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  clickOn({ page: 'interviews' });
+
+  clickInterviewCheck(roster8[2].id, true);
+  clickOn({ page: 'dashboard' });
+  assert.ok(root.innerHTML.includes('有未保存的修改'), '有未保存修改时切页要先问一句');
+  assert.ok(root.innerHTML.includes('学生面谈'), '确认之前不该已经离开');
+
+  clickOn({ action: 'keep-editing' });
+  assert.ok(root.innerHTML.includes('学生面谈'), '继续编辑应留在原地');
+
+  clickOn({ page: 'dashboard' });
+  clickOn({ action: 'discard-edits' });
+  assert.ok(root.innerHTML.includes('今日看板'), '放弃修改后应真的离开');
+  assert.equal(storage.get('teacher-local-interviews'), undefined, '放弃修改不该写存储');
 });

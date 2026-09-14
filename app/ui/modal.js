@@ -1,7 +1,6 @@
 import { class7Name, class8Name } from '../core/constants.js';
 import { today } from '../core/date.js';
 import { button, empty, esc, inputField, selectField } from '../core/dom.js';
-import { roster8 } from '../core/roster.js';
 import { state } from '../core/state.js';
 import { groupPreview, seatingPreview } from '../pages/layouts.js';
 
@@ -11,13 +10,8 @@ export function modalHtml() {
   let body = modal.body;
   if (modal.type === 'note')
     body = `<form data-form="note">${inputField('日期', 'date', today, 'date')}<div class="local-field full"><label>内容</label><textarea class="local-textarea" name="text" required></textarea></div><div class="local-actions-row">${button('取消', 'close-modal')}${button('保存记录', 'submit-form', 'primary')}</div></form>`;
-  if (modal.type === 'violation')
-    body = `<form data-form="violation">${inputField('日期', 'date', today, 'date')}${selectField(
-      '学生',
-      'student',
-      roster8.map((student) => [student.name, student.name]),
-      ''
-    )}<div class="local-field full"><label>具体事项</label><textarea class="local-textarea" name="text" required></textarea></div><div class="local-actions-row">${button('取消', 'close-modal')}${button('保存记录', 'submit-form', 'primary')}</div></form>`;
+  if (modal.type === 'unsaved')
+    body = `<div class="local-notice">${esc(modal.detail || '违纪页还有没保存的文字，现在离开会丢掉这些改动。')}</div><div class="local-actions-row">${button('继续编辑', 'keep-editing')}${button('放弃修改并离开', 'discard-edits', 'danger')}</div>`;
   if (modal.type === 'homework')
     body = `<form data-form="homework">${selectField(
       '班级',

@@ -18,6 +18,8 @@ const EXPLICIT_APP_URL = process.env.APP_URL ?? null;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const TODO_TEXT = '验收用待办事项';
+const VIOLATION_TEXT = '课堂讲话';
+const VIOLATION_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const LEGACY_HOMEWORK = { '8:2026-09-14': { 'local-8-1': { rating: '优', note: '' } } };
 const BACKUP_FILE_RE = /^workbench-backup-\d{8}-\d{4}\.json$/;
 
@@ -376,7 +378,143 @@ async function main() {
     const afterReload = await text();
     record('刷新后恢复的数据仍在（已落进本地存储）', afterReload.includes(TODO_TEXT), firstLine(afterReload, 80));
 
-    // 6. 旧学生 ID 自动迁移：把旧格式数据塞进存储，并抹掉迁移标记
+    // 6. 违纪页（L1）：全班逐行录入、真打字即置顶且不丢焦点、整批保存、清空即删除
+    await click('违纪记录');
+    const grid = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          rows: document.querySelectorAll('[data-violation-row]').length,
+          inputs: document.querySelectorAll('[data-violation-student]').length,
+          hasSave: !!window.__m.byText('保存当天违纪'),
+          hasDate: !!document.querySelector('[data-violation-picker]'),
+        })
+      `)
+    );
+    record(
+      '违纪页把 8 班全班铺成一行一人，没有弹窗',
+      grid.rows === grid.inputs && grid.rows > 10 && grid.hasSave && grid.hasDate,
+      `行数=${grid.rows}，输入框=${grid.inputs}，保存按钮=${grid.hasSave}`
+    );
+
+    // 拿最后一名学生做目标：它一开始排在队尾，置顶效果一眼可见
+    const target = JSON.parse(
+      await evaluate(`
+        (() => {
+          const rows = [...document.querySelectorAll('[data-violation-row]')];
+          const row = rows[rows.length - 1];
+          const input = row.querySelector('[data-violation-student]');
+          const index = rows.indexOf(row);
+          return JSON.stringify({
+            name: row.querySelector('.local-violation-name').textContent,
+            studentId: input.getAttribute('data-violation-student'),
+            origin: index,
+          });
+        })()
+      `)
+    );
+
+    // 真·键盘输入：走 CDP 聚焦 + 插入文本，才能验出「输入后行移动但焦点和光标没丢」
+    const gridDoc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const gridNodes = await cdp.send('DOM.querySelectorAll', { nodeId: gridDoc.root.nodeId, selector: '[data-violation-student]' });
+    const lastInput = gridNodes.nodeIds[gridNodes.nodeIds.length - 1];
+    await cdp.send('DOM.focus', { nodeId: lastInput });
+    await cdp.send('Input.insertText', { text: VIOLATION_TEXT });
+    await sleep(800);
+
+    const typed = JSON.parse(
+      await evaluate(`
+        (() => {
+          // 用实际渲染位置判断谁在最上面，而不是看 DOM 顺序 —— 置顶只要视觉上成立就够了
+          const rows = [...document.querySelectorAll('[data-violation-row]')];
+          const top = rows.reduce((best, row) => (row.getBoundingClientRect().top < best.getBoundingClientRect().top ? row : best), rows[0]);
+          const active = document.activeElement;
+          return JSON.stringify({
+            value: active && active.value,
+            focused: active ? active.getAttribute('data-violation-student') : '',
+            topRow: top.querySelector('.local-violation-name').textContent,
+            topValue: top.querySelector('[data-violation-student]').value,
+            meta: (document.querySelector('[data-violation-meta]') || {}).textContent || '',
+          });
+        })()
+      `)
+    );
+    record(
+      '输入即有内容的学生置顶，且焦点与光标没被夺走',
+      typed.value === VIOLATION_TEXT && typed.focused === target.studentId && typed.topRow === target.name && typed.meta.includes('未保存'),
+      `编辑前在第 ${target.origin + 1} 行，现在最上面的是「${typed.topRow}」；焦点仍在=${typed.focused ? '是' : '否'}；提示=${typed.meta}`
+    );
+
+    await click('保存当天违纪');
+    const savedViolations = JSON.parse(await evaluate(`localStorage.getItem('teacher-local-violations')`));
+    record(
+      '整批保存写成新形态（稳定学生 ID + 日期 + 内容 + 三个时间戳）',
+      savedViolations.length === 1 &&
+        savedViolations[0].studentId === target.studentId &&
+        savedViolations[0].content === VIOLATION_TEXT &&
+        VIOLATION_DATE_RE.test(savedViolations[0].eventDate) &&
+        Boolean(savedViolations[0].lastRecordedAt && savedViolations[0].createdAt && savedViolations[0].updatedAt) &&
+        !('student' in savedViolations[0]) &&
+        !('text' in savedViolations[0]),
+      `记录=${JSON.stringify(savedViolations[0]).slice(0, 120)}`
+    );
+
+    await goto();
+    await click('违纪记录');
+    const persisted = JSON.parse(
+      await evaluate(`
+        (() => {
+          const first = document.querySelector('[data-violation-row]');
+          return JSON.stringify({
+            firstRow: first ? first.querySelector('.local-violation-name').textContent : '',
+            firstValue: first ? first.querySelector('[data-violation-student]').value : '',
+            meta: (document.querySelector('[data-violation-meta]') || {}).textContent || '',
+          });
+        })()
+      `)
+    );
+    record(
+      '刷新后该生仍置顶、文字仍在、且不再算未保存',
+      persisted.firstRow === target.name && persisted.firstValue === VIOLATION_TEXT && !persisted.meta.includes('未保存'),
+      `首行=${persisted.firstRow}，内容=${persisted.firstValue}`
+    );
+
+    // 键盘全选清空 + 保存 = 删除这条记录
+    const clearDoc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const clearNode = await cdp.send('DOM.querySelector', { nodeId: clearDoc.root.nodeId, selector: '[data-violation-student]' });
+    await cdp.send('DOM.focus', { nodeId: clearNode.nodeId });
+    for (const type of ['keyDown', 'keyUp']) {
+      await cdp.send('Input.dispatchKeyEvent', { type, modifiers: 2, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65 });
+    }
+    for (const type of ['keyDown', 'keyUp']) {
+      await cdp.send('Input.dispatchKeyEvent', { type, key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 });
+    }
+    await sleep(600);
+    const cleared = await evaluate(`(document.activeElement || {}).value`);
+    await click('保存当天违纪');
+    const afterClear = JSON.parse(await evaluate(`localStorage.getItem('teacher-local-violations')`));
+
+    await goto();
+    await click('违纪记录');
+    const reloaded = JSON.parse(
+      await evaluate(`
+        (() => {
+          const rows = [...document.querySelectorAll('[data-violation-row]')];
+          const last = rows[rows.length - 1];
+          return JSON.stringify({
+            count: rows.length,
+            firstValue: rows[0].querySelector('[data-violation-student]').value,
+            lastRow: last ? last.querySelector('.local-violation-name').textContent : '',
+          });
+        })()
+      `)
+    );
+    record(
+      '清空并保存即删除，刷新后不复活且该生回到花名册顺序',
+      cleared === '' && afterClear.length === 0 && reloaded.firstValue === '' && reloaded.lastRow === target.name,
+      `清空后存储条数=${afterClear.length}，刷新后末行=${reloaded.lastRow}`
+    );
+
+    // 7. 旧学生 ID 自动迁移：把旧格式数据塞进存储，并抹掉迁移标记
     await evaluate(`
       (() => {
         localStorage.removeItem(${JSON.stringify(metaKey)});
@@ -417,7 +555,7 @@ async function main() {
       `键=${JSON.stringify(second.homework)}, 标记时间未变=${second.at === migratedData.at}`
     );
 
-    // 7. 视口
+    // 8. 视口
     for (const [label, width, height] of [
       ['桌面 1440x900', 1440, 900],
       ['手机 390x844', 390, 844]
@@ -431,7 +569,7 @@ async function main() {
     }
     await cdp.send('Emulation.clearDeviceMetricsOverride');
 
-    // 8. 控制台
+    // 9. 控制台
     const noisy = cdp.events.filter((event) => {
       if (event.method === 'Runtime.exceptionThrown') return true;
       if (event.method === 'Log.entryAdded') return ['error', 'warning'].includes(event.params.entry.level);
@@ -444,9 +582,15 @@ async function main() {
       noisy
         .slice(0, 3)
         .map((event) => {
+          // 未捕获异常的位置信息在 exceptionDetails 里，只打印 text 会得到一句没用的「Uncaught」。
+          const details = event.params.exceptionDetails;
+          if (details) {
+            const where = details.url ? ` @ ${details.url}:${Number(details.lineNumber) + 1}` : '';
+            return `${details.exception?.description ?? details.text}${where}`.split('\n')[0];
+          }
           const entry = event.params.entry ?? {};
           const where = entry.url ? ` @ ${entry.url}` : '';
-          return `${entry.text ?? event.params.exceptionDetails?.text ?? event.params.type}${where}`;
+          return `${entry.text ?? event.params.type}${where}`;
         })
         .join(' | ')
     );

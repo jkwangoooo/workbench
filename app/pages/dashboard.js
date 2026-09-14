@@ -18,7 +18,7 @@ export function dashboard() {
     ${panel('今日 8 班课程', courseList(courses8, '还没有填写8班课表'), 'local-span-4')}
     ${panel('临时调课', `<div class="local-notice">按日期单独保存临时安排，常规课表不会被覆盖。</div><div class="local-actions-row">${button('打开临时调课', 'temporary-schedule', 'primary')}</div>`, 'local-span-3')}
     ${panel('待办事项', `${todos.length ? `<div class="local-todos">${todos.slice(0, 5).map(todoRow).join('')}</div>` : empty('暂时没有未完成待办')}<div class="local-actions-row">${button('新增待办', 'todos', 'small')}</div>`, 'local-span-7')}
-    ${panel('快捷记录', `<div class="local-list">${button('记录一条内容', 'new-note', 'small')} ${button('记录8班事项', 'new-violation', 'small')} ${button('记录作业反馈', 'new-homework', 'small')} ${button('调整今日课表', 'schedule', 'small')}</div>`, 'local-span-5')}
+    ${panel('快捷记录', `<div class="local-list">${button('记录一条内容', 'new-note', 'small')} ${button('记8班违纪', 'violations', 'small')} ${button('记录作业反馈', 'new-homework', 'small')} ${button('调整今日课表', 'schedule', 'small')}</div>`, 'local-span-5')}
     ${panel('最近快捷记录', notes.length ? `<div class="local-list">${notes.map((item) => `<div class="local-item"><span class="local-period">${fmtDate(item.date)}</span><div><strong>${esc(item.text)}</strong><small>${esc(item.createdAt || '')}</small></div></div>`).join('')}</div>` : empty('还没有快捷记录'), 'local-span-12')}
   </div>`
   );

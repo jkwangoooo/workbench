@@ -21,5 +21,11 @@ export const state = {
   seatingLayout: read(LOCAL_KEYS.seatingLayout, null),
   pendingImport: null,
   pendingBackup: null,
+  // 违纪页（需求 §3）：日期、当天草稿、本次会话的编辑顺序、整批保存失败的原因、待确认的跳转。
+  violationsDate: today,
+  violationsDraft: null,
+  violationsSessionOrder: [],
+  violationsError: null,
+  pendingNav: null,
   modal: null
 };

@@ -11,6 +11,7 @@ const SKIP = await access(SEED_PATH).then(
 const listeners = new Map();
 let root = null;
 let lastDownload = null;
+let storage = new Map();
 let bootCount = 0;
 
 function createElement(tag) {
@@ -51,9 +52,14 @@ function installDom() {
   globalThis.FileReader = class {};
   globalThis.Blob = class {};
   globalThis.URL = { createObjectURL: () => 'blob:local', revokeObjectURL() {} };
-  globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+  globalThis.localStorage = {
+    getItem: (key) => (storage.has(key) ? storage.get(key) : null),
+    setItem: (key, value) => storage.set(key, String(value)),
+    removeItem: (key) => storage.delete(key)
+  };
   globalThis.window = {
     WORKBENCH_SEED: {},
+    addEventListener() {},
     open: () => ({ document: { write() {}, close() {} }, focus() {}, print() {} })
   };
 }
@@ -64,6 +70,7 @@ async function bootstrap() {
   new Function('window', source)(holder);
 
   listeners.clear();
+  storage = new Map();
   installDom();
 
   const { state } = await import('../../app/core/state.js');
@@ -83,6 +90,11 @@ async function bootstrap() {
     seatingLayout: null,
     pendingImport: null,
     pendingBackup: null,
+    violationsDate: '2026-09-14',
+    violationsDraft: null,
+    violationsSessionOrder: [],
+    violationsError: null,
+    pendingNav: null,
     modal: null
   });
   delete state.managementTab;
@@ -98,6 +110,17 @@ function fire(type, target) {
 }
 
 const clickOn = (dataset, extra = {}) => fire('click', { closest: () => ({ dataset, classList: { contains: () => false }, ...extra }) });
+
+// 违纪页的输入框事件：只需要 dataset、value、matches、closest 这几样。
+function typeViolation(studentId, date, value) {
+  const row = { classList: { toggle() {} } };
+  fire('input', {
+    dataset: { violationStudent: studentId, violationDate: date },
+    value,
+    matches: (selector) => selector === '[data-violation-student]',
+    closest: (selector) => (selector === '[data-violation-row]' ? row : null)
+  });
+}
 
 const PAGES = [
   ['dashboard', '今日看板'],
@@ -146,15 +169,16 @@ test('8班学生档案按需显示且四列齐全', { skip: SKIP }, async () => 
   assert.ok(root.innerHTML.includes('示例学籍辅号-01'), '花名册应显示省学籍辅号');
 });
 
-test('弹窗、模板下载与导入入口可用', { skip: SKIP }, async () => {
+test('违纪页取代了弹窗式新增，模板下载与导入入口可用', { skip: SKIP }, async () => {
   await bootstrap();
 
-  clickOn({ action: 'new-violation' });
-  assert.ok(root.innerHTML.includes('新增8班违纪记录'), '违纪弹窗应打开');
-  assert.ok(root.innerHTML.includes('八班示例01'), '违纪弹窗应列出8班学生');
+  clickOn({ action: 'violations' });
+  assert.ok(root.innerHTML.includes('8班违纪记录'), '看板的快捷记录应能跳到违纪页');
+  assert.ok(root.innerHTML.includes('保存当天违纪'), '违纪页应有整批保存按钮');
 
-  clickOn({ action: 'close-modal' });
-  assert.ok(!root.innerHTML.includes('新增8班违纪记录'), '关闭后弹窗应消失');
+  clickOn({ page: 'class-management' });
+  clickOn({ managementTab: 'groups' });
+  assert.ok(root.innerHTML.includes('下载模板'), '分组表标签页应有模板按钮');
 
   lastDownload = null;
   clickOn({ action: 'download-groups' });
@@ -198,4 +222,70 @@ test('本地数据说明弹窗可以跳到数据与备份页', { skip: SKIP }, a
   // 「本地数据说明」也是顶栏常驻按钮的文案，不能用它判断弹窗是否关闭，
   // 这里改用只存在于该弹窗正文里的句子。
   assert.ok(!root.innerHTML.includes('此入口只使用浏览器本地存储'), '跳转后弹窗应关闭');
+});
+
+test('违纪页把全班铺成一行一人，并预填当天已保存的文字', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  // 旧形态（date / student 姓名 / text）也要能读出来
+  storage.set('teacher-local-violations', JSON.stringify([{ id: 'v1', date: '2026-09-14', student: roster8[0].name, text: '课堂讲话' }]));
+
+  clickOn({ page: 'violations' });
+  const boxes = root.innerHTML.match(/data-violation-student=/g) || [];
+  assert.equal(boxes.length, roster8.length, '全班每人都该有自己的一行输入框');
+  assert.ok(root.innerHTML.includes('value="课堂讲话"'), '当天已保存的文字应预填进输入框');
+  assert.ok(root.innerHTML.includes(roster8[roster8.length - 1].name), '最后一个学生也要在一屏里');
+  assert.ok(!root.innerHTML.includes('新增记录'), '不该再有弹窗式的新增入口');
+  assert.ok(!root.innerHTML.includes('处修改未保存'), '刚打开时没有未保存修改');
+});
+
+test('违纪页整批保存成新形态，清空并保存即删除', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  const { today } = await import('../../app/core/date.js');
+  clickOn({ page: 'violations' });
+
+  typeViolation(roster8[0].id, today, '课堂讲话');
+  // 页内重新渲染一次（草稿存在 state 里，不是靠 DOM 撑着），文字和未保存提示都该还在
+  clickOn({ page: 'violations' });
+  assert.ok(root.innerHTML.includes('value="课堂讲话"'), '重渲染后未保存的草稿不应丢');
+  assert.ok(root.innerHTML.includes('1 处修改未保存'), '应提示有未保存修改');
+
+  clickOn({ action: 'save-violations' });
+  const stored = JSON.parse(storage.get('teacher-local-violations'));
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].studentId, roster8[0].id, '写进去的是稳定学生 ID');
+  assert.equal(stored[0].eventDate, today);
+  assert.equal(stored[0].content, '课堂讲话');
+  assert.ok(stored[0].lastRecordedAt && stored[0].createdAt && stored[0].updatedAt, '新形态要带齐三个时间戳');
+  assert.ok(!('student' in stored[0]) && !('text' in stored[0]), '旧的 student / text 字段不该再写进去');
+  assert.ok(!root.innerHTML.includes('处修改未保存'), '保存后不该还是未保存状态');
+
+  typeViolation(roster8[0].id, today, '');
+  clickOn({ action: 'save-violations' });
+  assert.deepEqual(JSON.parse(storage.get('teacher-local-violations')), [], '清空即删除');
+
+  clickOn({ page: 'dashboard' });
+  clickOn({ page: 'violations' });
+  assert.ok(!root.innerHTML.includes('value="课堂讲话"'), '删掉之后重新进来不该复活');
+});
+
+test('违纪页有未保存文字时切页面要先确认', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  const { today } = await import('../../app/core/date.js');
+  clickOn({ page: 'violations' });
+
+  typeViolation(roster8[1].id, today, '上课说话');
+  clickOn({ page: 'dashboard' });
+  assert.ok(root.innerHTML.includes('有未保存的违纪文字'), '有未保存修改时切页要先问一句');
+  assert.ok(root.innerHTML.includes('8班违纪记录'), '确认之前不该已经离开');
+
+  clickOn({ action: 'keep-editing' });
+  assert.ok(root.innerHTML.includes('8班违纪记录') && root.innerHTML.includes('value="上课说话"'), '继续编辑应留在原地且文字还在');
+
+  clickOn({ page: 'dashboard' });
+  clickOn({ action: 'discard-edits' });
+  assert.ok(root.innerHTML.includes('今日看板'), '放弃修改后应真的离开');
+  assert.equal(storage.get('teacher-local-violations'), undefined, '放弃修改不该往存储里写东西');
 });

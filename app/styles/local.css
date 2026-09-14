@@ -371,6 +371,73 @@ button {
   width: 100%;
   min-width: 90px;
 }
+
+/* 违纪页：全班一行一人，紧凑到不需要滚动就能看清整班 */
+.local-violation-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.local-violation-bar .local-field {
+  width: 190px;
+}
+.local-violation-tip {
+  flex: 1 1 260px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.local-violation-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  gap: 10px;
+  padding: 8px 10px;
+  color: var(--muted);
+  background: var(--soft);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.local-violation-list {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px 4px;
+  max-height: max(320px, calc(100vh - 300px));
+  overflow: auto;
+}
+.local-violation-row {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.local-violation-name {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.local-violation-input {
+  height: 32px;
+  padding: 4px 9px;
+  font-size: 13px;
+}
+.local-violation-row.filled .local-violation-name,
+.local-violation-row:focus-within .local-violation-name {
+  font-weight: 600;
+}
+.local-violation-meta {
+  align-self: center;
+  color: var(--amber);
+  font-size: 12px;
+}
+.local-violation-meta:empty {
+  display: none;
+}
 .local-badge {
   display: inline-flex;
   align-items: center;
@@ -694,6 +761,13 @@ button {
 @media (max-width: 640px) {
   .local-shell {
     display: block;
+  }
+  .local-violation-head,
+  .local-violation-row {
+    grid-template-columns: 104px minmax(0, 1fr);
+  }
+  .local-violation-bar .local-field {
+    width: 100%;
   }
   .local-sidebar {
     width: auto;

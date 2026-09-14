@@ -1,4 +1,5 @@
 import { LOCAL_KEYS, slots } from './core/constants.js';
+import { today } from './core/date.js';
 import { button, esc, toast } from './core/dom.js';
 import { state } from './core/state.js';
 import { read, uid, write } from './core/storage.js';
@@ -7,6 +8,7 @@ import { parseGroup } from './domain/group-template.js';
 import { migrateStudentIds } from './domain/migrate.js';
 import { parseSeating } from './domain/seating-template.js';
 import { validateHttpUrl } from './domain/url.js';
+import { diffDay, pendingChanges, VIOLATION_DATE_RE } from './domain/violations.js';
 import { readJsonFile } from './io/read-json.js';
 import { readRows } from './io/read-workbook.js';
 import { classManagement } from './pages/class-management.js';
@@ -21,7 +23,7 @@ import { resourcesPage } from './pages/resources.js';
 import { rosterPage } from './pages/roster.js';
 import { schedulePage } from './pages/schedule.js';
 import { testsPage } from './pages/tests.js';
-import { violationsPage } from './pages/violations.js';
+import { violationsPage, violationsDate, violationsView } from './pages/violations.js';
 import { shell } from './ui/shell.js';
 
 const root = document.querySelector('#local-app');
@@ -151,14 +153,145 @@ function restoreBackup() {
   render();
 }
 
+// —— 违纪页（需求 §3）：全班逐行录入、输入即置顶、整批一次保存 ——
+
+// 有未保存修改时不许悄悄离开：换成弹窗问一句，把目的页/目的日期挂在 state 上等确认。
+function leaveViolations(next) {
+  state.pendingNav = next;
+  openModal('unsaved', '有未保存的违纪文字', {
+    detail: '违纪页有还没保存的文字。继续编辑可以回去保存；放弃修改会丢掉这些改动。'
+  });
+}
+
+function blockedFromLeaving(targetPage) {
+  if (state.page !== 'violations' || targetPage === 'violations') return false;
+  const view = violationsView();
+  if (!pendingChanges(view.saved, view.texts).length) return false;
+  leaveViolations({ kind: 'page', page: targetPage });
+  return true;
+}
+
+function goToPage(page) {
+  if (blockedFromLeaving(page)) return;
+  state.page = page;
+  render();
+}
+
+function switchViolationDate(date) {
+  state.violationsDate = date;
+  state.violationsDraft = null;
+  state.violationsSessionOrder = [];
+  state.violationsError = null;
+  render();
+}
+
+// 换日期和换页面一样要过未保存这一关，不能悄悄把文字丢了。
+// 日期必须是 YYYY-MM-DD：日期框被清空或塞进别的东西时，宁可无视也不要把它当成一个日期用。
+function requestViolationDate(date) {
+  if (!VIOLATION_DATE_RE.test(String(date || '')) || date === violationsDate()) return render();
+  const view = violationsView();
+  if (pendingChanges(view.saved, view.texts).length) return leaveViolations({ kind: 'violation-date', date });
+  switchViolationDate(date);
+}
+
+function applyPendingNav() {
+  const nav = state.pendingNav;
+  state.pendingNav = null;
+  state.violationsDraft = null;
+  state.violationsSessionOrder = [];
+  state.violationsError = null;
+  if (nav?.kind === 'page') state.page = nav.page;
+  if (nav?.kind === 'violation-date') state.violationsDate = nav.date;
+  render();
+}
+
+// 置顶用 CSS order 而不是搬 DOM 节点：把带焦点的行从文档里摘出去再插回来，输入框会丢焦点、
+// 光标跳回开头，正在打字的人会当场断线。改 order 只动视觉顺序，DOM 和焦点都不受影响。
+function applyViolationRowOrder() {
+  const list = document.querySelector('[data-violation-list]');
+  if (!list) return;
+  const rank = new Map(state.violationsSessionOrder.map((id, index) => [id, index]));
+  for (const row of list.querySelectorAll('[data-violation-row]')) {
+    const index = rank.get(row.dataset.violationRow);
+    row.style.order = index === undefined ? '' : String(index - rank.size);
+  }
+}
+
+function editViolation(input) {
+  const { violationStudent: studentId, violationDate: date } = input.dataset;
+  const view = violationsView();
+  if (!state.violationsDraft || state.violationsDraft.date !== date) state.violationsDraft = { date, texts: { ...view.texts } };
+  const texts = state.violationsDraft.texts;
+  const wasEmpty = !String(texts[studentId] ?? '').trim();
+  const value = input.value;
+  texts[studentId] = value;
+  state.violationsError = null;
+
+  // 输入即置顶，但只在「从没内容变成有内容」那一刻算一次：反复判定会让行在打字过程中来回跳。
+  if (wasEmpty && value.trim()) {
+    const order = state.violationsSessionOrder;
+    const at = order.indexOf(studentId);
+    if (at >= 0) order.splice(at, 1);
+    order.unshift(studentId);
+    applyViolationRowOrder();
+  }
+  const rowEl = input.closest('[data-violation-row]');
+  if (rowEl) rowEl.classList.toggle('filled', Boolean(value.trim()));
+
+  const badge = document.querySelector('[data-violation-meta]');
+  if (badge) badge.textContent = `${pendingChanges(view.saved, texts).length} 处修改未保存`;
+}
+
+// 整批一次写入：校验不过或写入失败都一个字都不落盘，页面保留未保存文字并说明原因。
+function saveViolations() {
+  const view = violationsView();
+  const outcome = diffDay(view.records, view.date, view.texts);
+  if (outcome.problems.length) {
+    state.violationsError = outcome.problems;
+    render();
+    return;
+  }
+  if (!outcome.added.length && !outcome.updated.length && !outcome.removed.length) {
+    state.violationsError = null;
+    toast('没有需要保存的修改');
+    render();
+    return;
+  }
+  try {
+    write(LOCAL_KEYS.violations, outcome.records);
+  } catch (_) {
+    state.violationsError = [
+      {
+        studentId: '',
+        name: '浏览器本地存储',
+        reason: '写入失败，本次改动一条都没保存（通常是存储写满了）。可以先到「数据与备份」页导出一份备份。'
+      }
+    ];
+    render();
+    return;
+  }
+  state.violationsError = null;
+  state.violationsDraft = null;
+  toast('违纪记录已保存');
+  render();
+}
+
+function resetViolations() {
+  const pending = pendingChanges(violationsView().saved, violationsView().texts).length;
+  state.violationsDraft = null;
+  state.violationsSessionOrder = [];
+  state.violationsError = null;
+  toast(pending ? `已放弃 ${pending} 处未保存修改` : '没有未保存的修改');
+  render();
+}
+
 document.addEventListener('click', (event) => {
   const target = event.target.closest(
     '[data-page],[data-action],[data-management-tab],[data-resource-tab],[data-schedule-type],[data-select-student]'
   );
   if (!target) return;
   if (target.dataset.page) {
-    state.page = target.dataset.page;
-    render();
+    goToPage(target.dataset.page);
     return;
   }
   if (target.dataset.managementTab) {
@@ -192,8 +325,9 @@ document.addEventListener('click', (event) => {
         '</div>'
     });
   if (action === 'open-data') {
-    state.page = 'data';
-    return closeModal();
+    state.modal = null;
+    goToPage('data');
+    return;
   }
   if (action === 'export-backup') return exportBackup();
   if (action === 'cancel-restore') {
@@ -208,7 +342,15 @@ document.addEventListener('click', (event) => {
   }
   if (action === 'todos') return openModal('todos', '新增待办');
   if (action === 'new-note') return openModal('note', '记录快捷内容');
-  if (action === 'new-violation') return openModal('violation', '新增8班违纪记录');
+  if (action === 'violations') return goToPage('violations');
+  if (action === 'save-violations') return saveViolations();
+  if (action === 'reset-violations') return resetViolations();
+  if (action === 'violations-today') return requestViolationDate(today);
+  if (action === 'keep-editing') {
+    state.pendingNav = null;
+    return closeModal();
+  }
+  if (action === 'discard-edits') return applyPendingNav();
   if (action === 'new-homework') return openModal('homework', '打开作业反馈');
   if (action === 'save-schedule') {
     if (target.classList.contains('disabled')) return;
@@ -228,14 +370,6 @@ document.addEventListener('click', (event) => {
     write(
       LOCAL_KEYS.resources,
       read(LOCAL_KEYS.resources, []).filter((item) => item.id !== id)
-    );
-    return render();
-  }
-  if (action.startsWith('delete-violation:')) {
-    const id = action.slice(17);
-    write(
-      LOCAL_KEYS.violations,
-      read(LOCAL_KEYS.violations, []).filter((item) => item.id !== id)
     );
     return render();
   }
@@ -279,6 +413,8 @@ document.addEventListener('change', (event) => {
   } else if (el.matches('[data-test-sheet]')) {
     state.selectedTest = el.value;
     render();
+  } else if (el.matches('[data-violation-picker]')) {
+    requestViolationDate(el.value);
   } else if (el.matches('[data-template-file]')) {
     const file = el.files[0];
     if (!file) return;
@@ -299,7 +435,7 @@ document.addEventListener('change', (event) => {
 });
 document.addEventListener('input', (event) => {
   const el = event.target;
-  if (el.matches('.local-schedule-cell')) return;
+  if (el.matches?.('[data-violation-student]')) editViolation(el);
 });
 document.addEventListener('submit', (event) => {
   const form = event.target;
@@ -317,12 +453,6 @@ document.addEventListener('submit', (event) => {
     write(LOCAL_KEYS.notes, items);
     closeModal();
     toast('快捷记录已保存');
-  } else if (type === 'violation') {
-    const items = read(LOCAL_KEYS.violations, []);
-    items.push({ id: uid('violation'), date: values.date, student: values.student, text: values.text.trim() });
-    write(LOCAL_KEYS.violations, items);
-    closeModal();
-    toast('违纪记录已保存');
   } else if (type === 'homework') {
     state.homeworkClass = values.classNumber;
     state.homeworkDate = values.date;
@@ -430,6 +560,15 @@ function chooseTemplate(kind) {
   state.pendingImport = { kind, layout: null, errors: [] };
   openModal('import', kind === 'groups' ? '导入分组模板' : '导入座次模板', { kind });
 }
+
+// 关标签页/刷新时也守一道：违纪页有未保存文字就交给浏览器的原生确认框。
+window.addEventListener('beforeunload', (event) => {
+  if (state.page !== 'violations') return;
+  const view = violationsView();
+  if (!pendingChanges(view.saved, view.texts).length) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
 
 migrateStudentIds();
 render();

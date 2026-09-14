@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+const root = join(import.meta.dirname, '..');
 
 test('stage2 migration keeps grouping and seating tables and RPCs independent', async () => {
-  const sql = await readFile('supabase/migrations/202609030001_stage2_group_seating.sql', 'utf8');
+  const sql = await readFile(join(root, 'supabase/migrations/202609030001_stage2_group_seating.sql'), 'utf8');
   assert.match(sql, /class_group_layouts/);
   assert.match(sql, /class_seating_layouts/);
   assert.match(sql, /replace_group_layout/);
@@ -23,9 +26,9 @@ test('stage2 migration keeps grouping and seating tables and RPCs independent', 
 
 test('stage2 parsers enforce fixed template contracts and duplicate rejection', async () => {
   const [group, seating, page] = await Promise.all([
-    readFile('src/modules/class-management/imports/groupTemplateParser.ts', 'utf8'),
-    readFile('src/modules/class-management/imports/seatingTemplateParser.ts', 'utf8'),
-    readFile('src/modules/class-management/pages/ClassManagementPage.ts', 'utf8')
+    readFile(join(root, 'src/modules/class-management/imports/groupTemplateParser.ts'), 'utf8'),
+    readFile(join(root, 'src/modules/class-management/imports/seatingTemplateParser.ts'), 'utf8'),
+    readFile(join(root, 'src/modules/class-management/pages/ClassManagementPage.ts'), 'utf8')
   ]);
   assert.match(group, /组别/);
   assert.match(group, /学生重复/);
@@ -40,9 +43,9 @@ test('stage2 parsers enforce fixed template contracts and duplicate rejection', 
 
 test('stage2 fixed seating structure and refresh mappings are explicit', async () => {
   const [domain, groupRepository, seatingRepository] = await Promise.all([
-    readFile('src/modules/class-management/domain/seating-layout.ts', 'utf8'),
-    readFile('src/modules/class-management/data/groupLayoutRepository.ts', 'utf8'),
-    readFile('src/modules/class-management/data/seatingLayoutRepository.ts', 'utf8')
+    readFile(join(root, 'src/modules/class-management/domain/seating-layout.ts'), 'utf8'),
+    readFile(join(root, 'src/modules/class-management/data/groupLayoutRepository.ts'), 'utf8'),
+    readFile(join(root, 'src/modules/class-management/data/seatingLayoutRepository.ts'), 'utf8')
   ]);
   assert.match(domain, /rowIndex === 0 \? 'podium'/);
   assert.match(domain, /columnIndex === 4 \? 'aisle'/);
@@ -58,7 +61,7 @@ test('stage2 fixed seating structure and refresh mappings are explicit', async (
 });
 
 test('stage2 upload previews are isolated from saved layouts and save only on confirmation', async () => {
-  const page = await readFile('src/modules/class-management/pages/ClassManagementPage.ts', 'utf8');
+  const page = await readFile(join(root, 'src/modules/class-management/pages/ClassManagementPage.ts'), 'utf8');
   assert.match(page, /savedGroupLayout/);
   assert.match(page, /draftGroupLayout/);
   assert.match(page, /savedSeatingLayout/);
@@ -75,7 +78,7 @@ test('stage2 upload previews are isolated from saved layouts and save only on co
 });
 
 test('stage2 verification SQL is metadata-only', async () => {
-  const sql = await readFile('supabase/verification/stage2_metadata.sql', 'utf8');
+  const sql = await readFile(join(root, 'supabase/verification/stage2_metadata.sql'), 'utf8');
   assert.match(sql, /information_schema\.columns/);
   assert.match(sql, /pg_policies/);
   assert.match(sql, /pg_indexes/);

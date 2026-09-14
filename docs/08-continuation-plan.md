@@ -3,6 +3,7 @@
 > 编制时间：2026-09-14
 > 编制依据：`HANDOFF.md`、`docs/00`–`docs/07`、以及对当前工作副本的**实测**（语法检查、依赖盘点、Git 探测、契约比对）
 > 本文定位：接手后的执行计划，覆盖"跑通本地版 → 修复契约 → 补齐需求 → 实现未完成模块 → 工程收口"
+> **结构变更（2026-09-14）**：本文写于目录重整之前。文中 `src/`、`supabase/` 及 `HANDOFF.md`、`docs/00`–`06` 已整体归档到 `legacy-cloud/`（对应 `legacy-cloud/src/`、`legacy-cloud/supabase/`、`legacy-cloud/docs/`），因此**下文出现的 `docs/0X` 一律指 `legacy-cloud/docs/0X`**；单文件的 `local.html` / `local-app.js` 已拆分为 `index.html` + `app/` 模块。行号级定位（如 `local-app.js:182`）仅作历史记录，以根目录 `README.md` 为准。
 
 ---
 
@@ -19,7 +20,7 @@
 
 ### 关于第 4 点的权威依据
 
-服务端 `supabase/migrations/202609030001_stage2_group_seating.sql` 的 `replace_seating_layout` RPC 明确写死：
+服务端 `legacy-cloud/supabase/migrations/202609030001_stage2_group_seating.sql` 的 `replace_seating_layout` RPC 明确写死：
 
 ```
 if v_row = 0 and v_kind <> 'podium' then raise exception 'podium row required';
@@ -27,7 +28,7 @@ if v_row > 0 and v_column = 4 and v_kind <> 'aisle' then raise exception 'aisle 
 if (v_row > 0 and v_column <> 4) and v_kind in ('podium','aisle') then raise exception 'invalid seating structure position';
 ```
 
-`src/modules/class-management/domain/seating-layout.ts:13` 与之完全一致。**两侧一致，且都指向"整行讲台 + 后七行第 5 列过道"**。
+`legacy-cloud/src/modules/class-management/domain/seating-layout.ts:13` 与之完全一致。**两侧一致，且都指向"整行讲台 + 后七行第 5 列过道"**。
 
 而 `local-app.js`：
 - `downloadTemplate('seating')`（第 239 行）生成 `row0col0=PODIUM`、`row0col4=AISLE`、其余 `EMPTY` —— 违反上述规则；

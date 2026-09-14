@@ -2,6 +2,11 @@
 
 更新时间：2026-09-13
 
+> **结构变更（2026-09-14）**：本文写于目录重整之前，路径已按现状梳理，请对照根目录 `README.md` 阅读。
+> - 单文件的 `local.html` / `local-app.js` 已拆分为 `index.html` + `app/`（`core` / `domain` / `io` / `ui` / `pages`）；旧的云端入口 `index.html` / `app.js` 现位于 `legacy-cloud/`。
+> - 本文中的 `src/`、`supabase/`、`HANDOFF.md`、`docs/00`–`06` 已整体归档，对应 `legacy-cloud/src/`、`legacy-cloud/supabase/`、`legacy-cloud/docs/`。
+> - 因此文中形如 `local-app.js:182` 的行号定位已失效，仅保留作历史记录。
+
 ## 1. 接手结论
 
 当前工作优先级是把本地业务版跑通；不处理 Supabase、RLS、部署、上线迁移或云端回归。独立入口是 `local.html`，与历史云端入口 `index.html` / `app.js` 并存且不互相调用。
@@ -95,7 +100,7 @@ teacher-local-seating-layout
 
 1. `readRows()` 对所有文件使用 `FileReader.readAsArrayBuffer()`。CSV 分支随后将 `ArrayBuffer` 转为字符串，不能得到原始 CSV 文本；CSV 导入当前会失败。CSV 应使用 `readAsText()`，XLSX/XLS 才使用 `readAsArrayBuffer()`。
 2. `local-app.js:182` 的语法错误阻止整个本地页面加载。这是第一优先级，先修复再谈页面验证。
-3. 座次表校验尚未与 `src/modules/class-management/domain/seating-layout.ts` 的领域规则完成逐项对照，尤其需要确认讲台/过道的完整布局约束。
+3. 座次表校验尚未与 `legacy-cloud/src/modules/class-management/domain/seating-layout.ts` 的领域规则完成逐项对照，尤其需要确认讲台/过道的完整布局约束。
 4. 分组布局和座次布局分别使用不同本地键，但“错误导入不影响旧布局、取消保留旧布局、确认后刷新恢复、打印结果”均未做浏览器实测。
 
 ## 6. 验证记录
@@ -129,4 +134,4 @@ git push origin main       -> 成功，main 已推送
 
 ## 8. 历史材料的使用方式
 
-`HANDOFF.md` 和 `docs/00-*` 至 `docs/06-*` 主要保留旧的云端设计、迁移与模块需求。阅读它们可以了解需求背景，但当前本地开发以本文件的范围、状态和接手顺序为准。不要据旧文档直接宣称云端迁移、RLS 验证或 Stage 2 已完成。
+`legacy-cloud/docs/` 下的 `HANDOFF.md` 与 `00`–`06` 号文档主要保留旧的云端设计、迁移与模块需求。阅读它们可以了解需求背景，但当前本地开发以本文件的范围、状态和接手顺序为准。不要据旧文档直接宣称云端迁移、RLS 验证或 Stage 2 已完成。

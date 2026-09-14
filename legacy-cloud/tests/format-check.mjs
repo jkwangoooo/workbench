@@ -1,4 +1,8 @@
+// 归档代码的格式卫生检查：只查 CRLF 与行尾空白，不做重排（归档代码不再开发）。
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+const root = join(import.meta.dirname, '..');
 
 const files = [
   'src/main.ts',
@@ -19,7 +23,7 @@ const files = [
   'src/modules/class-management/imports/importValidation.ts'
 ];
 for (const file of files) {
-  const text = await readFile(file, 'utf8');
+  const text = await readFile(join(root, file), 'utf8');
   if (text.includes('\r') || /[ \t]+\n/.test(text)) throw new Error(`format check failed: ${file}`);
 }
 console.log(`format check passed (${files.length} files)`);

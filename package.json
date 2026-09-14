@@ -2,24 +2,24 @@
   "name": "teacher-workbench",
   "private": true,
   "version": "0.1.0",
-  "description": "班主任工作台：本地版（app/，零构建）+ 归档的云端版（legacy-cloud/）+ TypeScript 云端基础（src/）。",
+  "description": "班主任工作台：本地版主线（app/，零构建、纯 localStorage）；旧 Supabase 云端版整代归档于 legacy-cloud/。",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/copy-browser-deps.mjs",
+    "build": "node scripts/copy-browser-deps.mjs dist",
     "dev": "npm run build && node scripts/serve.mjs",
     "serve": "node scripts/serve.mjs",
+    "seed": "node scripts/make-demo-seed.mjs",
     "format": "prettier --write app",
-    "format:check": "node tests/format-check.mjs && prettier --check app",
-    "typecheck": "tsc --noEmit",
-    "typecheck:contracts": "node tests/typecheck.mjs",
+    "format:check": "prettier --check app",
     "test": "node --test tests/unit/*.test.mjs",
     "syntax": "node scripts/check-modules.mjs",
-    "check": "npm run format:check && npm run typecheck && npm run typecheck:contracts && npm test && npm run syntax"
+    "check": "npm run format:check && npm test && npm run syntax",
+    "build:legacy": "tsc -p legacy-cloud/tsconfig.build.json && node scripts/copy-browser-deps.mjs legacy-cloud/dist",
+    "check:legacy": "tsc -p legacy-cloud/tsconfig.json && node legacy-cloud/tests/typecheck.mjs && node legacy-cloud/tests/format-check.mjs && node --test legacy-cloud/tests/*.test.mjs"
   },
   "devDependencies": {
     "prettier": "^3.9.6",
-    "typescript": "^5.9.3",
-    "xlsx": "^0.18.5"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "xlsx": "^0.18.5"

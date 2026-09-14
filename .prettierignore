@@ -3,4 +3,4 @@ dist/
 private-data/
 package-lock.json
 docs/
-supabase/
+legacy-cloud/

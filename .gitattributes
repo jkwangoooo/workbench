@@ -1,0 +1,14 @@
+# 统一换行符为 LF
+# 原因：legacy-cloud/tests/format-check.mjs 会拒绝 CRLF；本机 core.autocrlf=true，
+# 若不锁定，重新 clone 后归档检查会失败。
+* text=auto eol=lf
+
+# 二进制文件不做换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff2 binary
+*.xlsx binary
+*.pdf binary

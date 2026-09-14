@@ -123,6 +123,26 @@ test('迁移认不出的旧 ID 原样保留，不会丢数据', () => {
   assert.equal(result.changed, 0);
 });
 
+test('L2 之后的两张表形态也能迁移：只换反馈里的学生 ID，作业本身不动', () => {
+  const map = new Map([['local-8-1', 'local-8-aaaa1111']]);
+  const homework = {
+    version: 2,
+    tasks: [{ id: 'homework-8-2026-09-14-1', classNumber: '8', homeworkDate: '2026-09-14', slot: 1, content: '抄写', createdAt: 'x', updatedAt: 'x' }],
+    feedback: [
+      { id: 'homework-8-2026-09-14-1|local-8-1', homeworkId: 'homework-8-2026-09-14-1', studentId: 'local-8-1', rating: '优', note: '' },
+      { id: 'homework-8-2026-09-14-1|local-8-999', homeworkId: 'homework-8-2026-09-14-1', studentId: 'local-8-999', rating: '良', note: '认不出' }
+    ]
+  };
+  const result = remapStudentIds({ [LOCAL_KEYS.homework]: homework }, map);
+
+  assert.equal(result.changed, 1, '认得出的换掉，认不出的不动');
+  assert.deepEqual(result.data[LOCAL_KEYS.homework].tasks, homework.tasks, '作业内容不因为迁移被改写');
+  assert.equal(result.data[LOCAL_KEYS.homework].feedback[0].studentId, 'local-8-aaaa1111');
+  assert.equal(result.data[LOCAL_KEYS.homework].feedback[0].id, 'homework-8-2026-09-14-1|local-8-aaaa1111', 'id 里嵌着学生 ID，一起换掉');
+  assert.equal(result.data[LOCAL_KEYS.homework].feedback[1].studentId, 'local-8-999');
+  assert.equal(homework.feedback[0].studentId, 'local-8-1', '不应改动入参');
+});
+
 test('学生 ID 迁移只跑一次，重复执行不再改动', () => {
   const legacyId = roster8[0].legacyId;
   const store = installStorage({

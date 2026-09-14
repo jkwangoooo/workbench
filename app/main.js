@@ -4,6 +4,7 @@ import { button, esc, toast } from './core/dom.js';
 import { state } from './core/state.js';
 import { read, uid, write } from './core/storage.js';
 import { backupFilename, buildBackup, collectData, validateBackup } from './domain/backup.js';
+import { HOMEWORK_DATE_RE, HOMEWORK_SCHEMA, normalizeHomework, planSave } from './domain/homework.js';
 import { parseGroup } from './domain/group-template.js';
 import { migrateStudentIds } from './domain/migrate.js';
 import { parseSeating } from './domain/seating-template.js';
@@ -15,7 +16,16 @@ import { classManagement } from './pages/class-management.js';
 import { dashboard } from './pages/dashboard.js';
 import { dataPage } from './pages/data.js';
 import { dictationPage } from './pages/dictation.js';
-import { homeworkPage } from './pages/homework.js';
+import {
+  homeworkChip,
+  homeworkDate,
+  homeworkFeedbackBody,
+  homeworkMetaText,
+  homeworkPage,
+  homeworkSelectable,
+  homeworkSlot,
+  homeworkView
+} from './pages/homework.js';
 import { downloadTemplate, printLayout } from './pages/layouts.js';
 import { planningPage } from './pages/planning.js';
 import { prepPage } from './pages/prep.js';
@@ -62,6 +72,7 @@ function openModal(type, title, extra = {}) {
 function closeModal() {
   state.modal = null;
   state.pendingImport = null;
+  state.homeworkPendingDelete = null;
   render();
 }
 function formData(form) {
@@ -80,17 +91,6 @@ function saveSchedule() {
   write(LOCAL_KEYS.schedule, schedules);
   write(LOCAL_KEYS.overrides, overrides);
   toast('课表已保存到本地');
-}
-function saveHomework() {
-  const data = read(LOCAL_KEYS.homework, {});
-  const key = `${state.homeworkClass}:${state.homeworkDate}`;
-  data[key] = {};
-  document.querySelectorAll('.homework-rating').forEach((select) => {
-    const id = select.dataset.homeworkStudent;
-    data[key][id] = { rating: select.value, note: document.querySelector(`[data-homework-note="${CSS.escape(id)}"]`)?.value.trim() || '' };
-  });
-  write(LOCAL_KEYS.homework, data);
-  toast('作业反馈已保存');
 }
 function saveDictation() {
   const all = read(LOCAL_KEYS.dictation, []);
@@ -153,21 +153,33 @@ function restoreBackup() {
   render();
 }
 
-// —— 违纪页（需求 §3）：全班逐行录入、输入即置顶、整批一次保存 ——
+// —— 未保存守卫（违纪页与作业反馈页共用）——
 
-// 有未保存修改时不许悄悄离开：换成弹窗问一句，把目的页/目的日期挂在 state 上等确认。
-function leaveViolations(next) {
-  state.pendingNav = next;
-  openModal('unsaved', '有未保存的违纪文字', {
-    detail: '违纪页有还没保存的文字。继续编辑可以回去保存；放弃修改会丢掉这些改动。'
-  });
+// 当前页面有没有还没落盘的修改。null 表示干净，可以随便走。
+function pendingLeave() {
+  if (state.page === 'violations') {
+    const view = violationsView();
+    const count = pendingChanges(view.saved, view.texts).length;
+    return count ? { count, detail: `违纪页有 ${count} 处还没保存的文字。继续编辑可以回去保存；放弃修改会丢掉这些改动。` } : null;
+  }
+  if (state.page === 'homework') {
+    const count = homeworkView().pending.total;
+    return count ? { count, detail: `作业反馈页有 ${count} 处还没保存的修改。继续编辑可以回去保存；放弃修改会丢掉这些改动。` } : null;
+  }
+  return null;
+}
+
+// 有未保存修改时不许悄悄离开：换成弹窗问一句，把要去的地方挂在 state 上等确认。
+function offerNav(nav, title, detail) {
+  state.pendingNav = nav;
+  openModal('unsaved', title, { detail });
 }
 
 function blockedFromLeaving(targetPage) {
-  if (state.page !== 'violations' || targetPage === 'violations') return false;
-  const view = violationsView();
-  if (!pendingChanges(view.saved, view.texts).length) return false;
-  leaveViolations({ kind: 'page', page: targetPage });
+  if (targetPage === state.page) return false;
+  const pending = pendingLeave();
+  if (!pending) return false;
+  offerNav({ kind: 'page', page: targetPage }, '有未保存的修改', pending.detail);
   return true;
 }
 
@@ -176,6 +188,8 @@ function goToPage(page) {
   state.page = page;
   render();
 }
+
+// —— 违纪页（需求 §3）：全班逐行录入、输入即置顶、整批一次保存 ——
 
 function switchViolationDate(date) {
   state.violationsDate = date;
@@ -189,8 +203,8 @@ function switchViolationDate(date) {
 // 日期必须是 YYYY-MM-DD：日期框被清空或塞进别的东西时，宁可无视也不要把它当成一个日期用。
 function requestViolationDate(date) {
   if (!VIOLATION_DATE_RE.test(String(date || '')) || date === violationsDate()) return render();
-  const view = violationsView();
-  if (pendingChanges(view.saved, view.texts).length) return leaveViolations({ kind: 'violation-date', date });
+  const pending = pendingLeave();
+  if (pending) return offerNav({ kind: 'violation-date', date }, '有未保存的违纪文字', pending.detail);
   switchViolationDate(date);
 }
 
@@ -200,8 +214,15 @@ function applyPendingNav() {
   state.violationsDraft = null;
   state.violationsSessionOrder = [];
   state.violationsError = null;
+  state.homeworkDraft = null;
+  state.homeworkError = null;
   if (nav?.kind === 'page') state.page = nav.page;
   if (nav?.kind === 'violation-date') state.violationsDate = nav.date;
+  if (nav?.kind === 'homework-date') state.homeworkDate = nav.date;
+  if (nav?.kind === 'homework-class') {
+    state.homeworkClass = nav.classNumber;
+    state.homeworkSlot = null;
+  }
   render();
 }
 
@@ -285,6 +306,193 @@ function resetViolations() {
   render();
 }
 
+// —— 作业反馈页（需求 §4）：三条作业各自独立，内容 + 该条反馈一起提交 ——
+
+// 草稿按「班级 + 日期」认，切换时对不上就重新起一份，避免把上一个日期的修改带过去。
+function homeworkDraftFor(view) {
+  const held = state.homeworkDraft;
+  if (held && held.classNumber === view.classNumber && held.date === view.date) return held;
+  const draft = { classNumber: view.classNumber, date: view.date, contents: { ...view.contents }, feedbacks: {} };
+  state.homeworkDraft = draft;
+  return draft;
+}
+
+// 当前选中那条作业的反馈草稿：第一次用到时从已保存记录拷一份，之后改的都是这份副本。
+function homeworkFeedbackDraft(view) {
+  const draft = homeworkDraftFor(view);
+  if (!view.slot) return null;
+  if (!draft.feedbacks[view.slot]) draft.feedbacks[view.slot] = { ...view.feedback };
+  return draft.feedbacks[view.slot];
+}
+
+// 打字时只补文案和状态，不整体重渲染：作业内容框在「作业内容」面板里，
+// 反馈表在另一块面板，换它的 innerHTML 不会碰到正在输入的那个框。
+function refreshHomeworkUi({ feedbackPanel = false } = {}) {
+  const view = homeworkView();
+  if (feedbackPanel) document.querySelectorAll('[data-homework-feedback]').forEach((node) => (node.innerHTML = homeworkFeedbackBody(view)));
+  document.querySelectorAll('[data-homework-chip]').forEach((node) => {
+    const chip = homeworkChip(view, Number(node.dataset.homeworkChip));
+    node.className = chip.className;
+    node.textContent = chip.text;
+  });
+  document
+    .querySelectorAll('[data-homework-slot-button]')
+    .forEach((node) => node.classList.toggle('disabled', !homeworkSelectable(view, Number(node.dataset.homeworkSlotButton))));
+  document.querySelectorAll('[data-action="save-homework"]').forEach((node) => node.classList.toggle('disabled', !view.slot));
+  document.querySelectorAll('[data-homework-meta]').forEach((node) => (node.textContent = homeworkMetaText(view)));
+}
+
+function editHomeworkContent(input) {
+  const view = homeworkView();
+  const draft = homeworkDraftFor(view);
+  draft.contents[Number(input.dataset.homeworkContent)] = input.value;
+  state.homeworkError = null;
+  refreshHomeworkUi({ feedbackPanel: true });
+}
+
+function editHomeworkRating(select) {
+  const view = homeworkView();
+  const draft = homeworkFeedbackDraft(view);
+  const studentId = select.dataset.homeworkRating;
+  if (!draft || !(studentId in draft)) return;
+  draft[studentId] = { ...draft[studentId], rating: select.value };
+  state.homeworkError = null;
+  refreshHomeworkUi();
+}
+
+function editHomeworkNote(input) {
+  const view = homeworkView();
+  const draft = homeworkFeedbackDraft(view);
+  const studentId = input.dataset.homeworkNote;
+  if (!draft || !(studentId in draft)) return;
+  draft[studentId] = { ...draft[studentId], note: input.value };
+  state.homeworkError = null;
+  refreshHomeworkUi();
+}
+
+function selectHomeworkSlot(slot) {
+  const view = homeworkView();
+  if (!homeworkSelectable(view, slot)) {
+    toast(`第 ${slot} 条作业还是空的，先填上内容再录入反馈`);
+    return;
+  }
+  state.homeworkSlot = state.homeworkSlot === slot ? null : slot;
+  render();
+}
+
+function switchHomework({ date, classNumber }) {
+  if (date) state.homeworkDate = date;
+  if (classNumber) {
+    state.homeworkClass = classNumber;
+    state.homeworkSlot = null;
+  }
+  state.homeworkDraft = null;
+  state.homeworkError = null;
+  render();
+}
+
+// 换日期、换班级和换页面一样要过未保存这一关：草稿是按班级 + 日期存的，换了就回不来了。
+function requestHomeworkDate(date) {
+  if (!HOMEWORK_DATE_RE.test(String(date || '')) || date === homeworkDate()) return render();
+  const pending = pendingLeave();
+  if (pending) return offerNav({ kind: 'homework-date', date }, '有未保存的作业反馈', pending.detail);
+  switchHomework({ date });
+}
+
+function requestHomeworkClass(classNumber) {
+  if (!['7', '8'].includes(String(classNumber)) || classNumber === state.homeworkClass) return render();
+  const pending = pendingLeave();
+  if (pending) return offerNav({ kind: 'homework-class', classNumber }, '有未保存的作业反馈', pending.detail);
+  switchHomework({ classNumber });
+}
+
+function writeHomework(tasks, feedback) {
+  write(LOCAL_KEYS.homework, { version: HOMEWORK_SCHEMA, tasks, feedback });
+}
+
+// 保存选中的那一条作业域：内容 + 该条的学生反馈一起写，其他日期、其他班级、其他编号一律不碰。
+// 校验不过或写入失败都一个字不落盘，页面保留未保存修改并说明原因。
+function saveHomework() {
+  const view = homeworkView();
+  if (!view.slot) return toast('先选中第 1/2/3 条里的一条作业');
+  const draft = homeworkDraftFor(view);
+  const outcome = planSave(normalizeHomework(read(LOCAL_KEYS.homework, null)), {
+    classNumber: view.classNumber,
+    date: view.date,
+    slot: view.slot,
+    content: draft.contents[view.slot],
+    feedback: homeworkFeedbackDraft(view),
+    students: view.students
+  });
+  if (outcome.problems.length) {
+    state.homeworkError = outcome.problems;
+    render();
+    return;
+  }
+  if (outcome.needsConfirm) {
+    state.homeworkPendingDelete = { slot: outcome.needsConfirm.slot, feedbackCount: outcome.needsConfirm.feedbackCount };
+    openModal('delete-homework', '清空这条作业？');
+    return;
+  }
+  const { contentChanged, feedbackChanged, initialized } = outcome.summary;
+  if (!contentChanged && !feedbackChanged && !initialized) {
+    toast('没有需要保存的修改');
+    render();
+    return;
+  }
+  try {
+    writeHomework(outcome.tasks, outcome.feedback);
+  } catch (_) {
+    state.homeworkError = [
+      {
+        name: '浏览器本地存储',
+        reason: '写入失败，本次改动一条都没保存（通常是存储写满了）。可以先到「数据与备份」页导出一份备份。'
+      }
+    ];
+    render();
+    return;
+  }
+  state.homeworkDraft = null;
+  state.homeworkError = null;
+  if (outcome.deleted) state.homeworkSlot = null;
+  toast(initialized && !contentChanged ? `第 ${view.slot} 条作业已按默认「优」写入全班反馈` : `第 ${view.slot} 条作业已保存`);
+  render();
+}
+
+// 二次确认之后的级联删除：那条作业和它的全部反馈一起走，同日其他作业不受影响。
+function confirmDeleteHomework() {
+  const pending = state.homeworkPendingDelete;
+  if (!pending) return closeModal();
+  const view = homeworkView();
+  const outcome = planSave(normalizeHomework(read(LOCAL_KEYS.homework, null)), {
+    classNumber: view.classNumber,
+    date: view.date,
+    slot: pending.slot,
+    content: '',
+    confirm: true
+  });
+  try {
+    writeHomework(outcome.tasks, outcome.feedback);
+  } catch (_) {
+    state.homeworkError = [{ name: '浏览器本地存储', reason: '写入失败，这条作业没有删掉（通常是存储写满了）。' }];
+    return closeModal();
+  }
+  state.homeworkDraft = null;
+  state.homeworkError = null;
+  state.homeworkSlot = null;
+  state.homeworkPendingDelete = null;
+  closeModal();
+  toast(`第 ${pending.slot} 条作业及其 ${pending.feedbackCount} 条反馈已删除`);
+}
+
+function resetHomework() {
+  const total = homeworkView().pending.total;
+  state.homeworkDraft = null;
+  state.homeworkError = null;
+  toast(total ? `已放弃 ${total} 处未保存修改` : '没有未保存的修改');
+  render();
+}
+
 document.addEventListener('click', (event) => {
   const target = event.target.closest(
     '[data-page],[data-action],[data-management-tab],[data-resource-tab],[data-schedule-type],[data-select-student]'
@@ -351,12 +559,23 @@ document.addEventListener('click', (event) => {
     return closeModal();
   }
   if (action === 'discard-edits') return applyPendingNav();
+  if (action === 'save-homework') {
+    if (target.classList.contains('disabled')) return;
+    return saveHomework();
+  }
+  if (action === 'reset-homework') return resetHomework();
+  if (action === 'homework-today') return requestHomeworkDate(today);
+  if (action === 'cancel-delete-homework') {
+    state.homeworkPendingDelete = null;
+    return closeModal();
+  }
+  if (action === 'confirm-delete-homework') return confirmDeleteHomework();
+  if (action.startsWith('homework-slot:')) return selectHomeworkSlot(Number(action.slice(14)));
   if (action === 'new-homework') return openModal('homework', '打开作业反馈');
   if (action === 'save-schedule') {
     if (target.classList.contains('disabled')) return;
     return saveSchedule();
   }
-  if (action === 'save-homework') return saveHomework();
   if (action === 'new-dictation') return openModal('dictation', '新建听写阶段');
   if (action === 'new-dictation-column') return openModal('dictation-column', '新增听写项目');
   if (action === 'save-dictation') return saveDictation();
@@ -399,11 +618,11 @@ document.addEventListener('change', (event) => {
     state.rosterClass = el.value;
     render();
   } else if (el.matches('[data-homework-class]')) {
-    state.homeworkClass = el.value;
-    render();
-  } else if (el.matches('[data-homework-date]')) {
-    state.homeworkDate = el.value;
-    render();
+    requestHomeworkClass(el.value);
+  } else if (el.matches('[data-homework-picker]')) {
+    requestHomeworkDate(el.value);
+  } else if (el.matches('[data-homework-rating]')) {
+    editHomeworkRating(el);
   } else if (el.matches('[data-temporary-date]')) {
     state.temporaryDate = el.value;
     render();
@@ -436,6 +655,8 @@ document.addEventListener('change', (event) => {
 document.addEventListener('input', (event) => {
   const el = event.target;
   if (el.matches?.('[data-violation-student]')) editViolation(el);
+  else if (el.matches?.('[data-homework-content]')) editHomeworkContent(el);
+  else if (el.matches?.('[data-homework-note]')) editHomeworkNote(el);
 });
 document.addEventListener('submit', (event) => {
   const form = event.target;
@@ -456,6 +677,9 @@ document.addEventListener('submit', (event) => {
   } else if (type === 'homework') {
     state.homeworkClass = values.classNumber;
     state.homeworkDate = values.date;
+    state.homeworkSlot = null;
+    state.homeworkDraft = null;
+    state.homeworkError = null;
     state.page = 'homework';
     closeModal();
   } else if (type === 'todo') {
@@ -561,11 +785,9 @@ function chooseTemplate(kind) {
   openModal('import', kind === 'groups' ? '导入分组模板' : '导入座次模板', { kind });
 }
 
-// 关标签页/刷新时也守一道：违纪页有未保存文字就交给浏览器的原生确认框。
+// 关标签页/刷新时也守一道：违纪页、作业反馈页有未保存修改就交给浏览器的原生确认框。
 window.addEventListener('beforeunload', (event) => {
-  if (state.page !== 'violations') return;
-  const view = violationsView();
-  if (!pendingChanges(view.saved, view.texts).length) return;
+  if (!pendingLeave()) return;
   event.preventDefault();
   event.returnValue = '';
 });

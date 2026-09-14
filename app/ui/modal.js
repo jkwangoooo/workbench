@@ -11,7 +11,12 @@ export function modalHtml() {
   if (modal.type === 'note')
     body = `<form data-form="note">${inputField('日期', 'date', today, 'date')}<div class="local-field full"><label>内容</label><textarea class="local-textarea" name="text" required></textarea></div><div class="local-actions-row">${button('取消', 'close-modal')}${button('保存记录', 'submit-form', 'primary')}</div></form>`;
   if (modal.type === 'unsaved')
-    body = `<div class="local-notice">${esc(modal.detail || '违纪页还有没保存的文字，现在离开会丢掉这些改动。')}</div><div class="local-actions-row">${button('继续编辑', 'keep-editing')}${button('放弃修改并离开', 'discard-edits', 'danger')}</div>`;
+    body = `<div class="local-notice">${esc(modal.detail || '这一页还有没保存的修改，现在离开会丢掉它们。')}</div><div class="local-actions-row">${button('继续编辑', 'keep-editing')}${button('放弃修改并离开', 'discard-edits', 'danger')}</div>`;
+  // 需求 §4.5：清空一条已有反馈的作业 = 永久删除，先说清会删掉多少人的反馈（不给恢复）。
+  if (modal.type === 'delete-homework') {
+    const pending = state.homeworkPendingDelete || {};
+    body = `<div class="local-notice">第 ${esc(pending.slot)} 条作业已有 ${esc(pending.feedbackCount)} 名学生的反馈。保存会把这条作业连同这些反馈一起永久删除，删除后不能恢复；同日其他作业、其他日期和另一个班级都不受影响。</div><div class="local-actions-row">${button('取消', 'cancel-delete-homework')}${button('确认删除这条作业', 'confirm-delete-homework', 'danger')}</div>`;
+  }
   if (modal.type === 'homework')
     body = `<form data-form="homework">${selectField(
       '班级',
@@ -21,7 +26,7 @@ export function modalHtml() {
         ['7', class7Name]
       ],
       state.homeworkClass
-    )}${inputField('日期', 'date', today, 'date')}<div class="local-actions-row">${button('取消', 'close-modal')}${button('打开反馈', 'submit-form', 'primary')}</div></form>`;
+    )}${inputField('日期', 'date', state.homeworkDate || today, 'date')}<div class="local-actions-row">${button('取消', 'close-modal')}${button('打开反馈', 'submit-form', 'primary')}</div></form>`;
   if (modal.type === 'todos')
     body = `<form data-form="todo">${inputField('事项内容', 'text', '', 'text', 'required')}${inputField('截止日期', 'due', today, 'date')}<div class="local-actions-row">${button('取消', 'close-modal')}${button('保存待办', 'submit-form', 'primary')}</div></form>`;
   if (modal.type === 'dictation')

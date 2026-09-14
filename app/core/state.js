@@ -11,6 +11,12 @@ export const state = {
   profileClass: '8',
   homeworkClass: '8',
   homeworkDate: today,
+  // 作业反馈页（需求 §4）：当前录入的作业编号、草稿（三条内容 + 每条各自的反馈）、
+  // 保存失败的原因、等待二次确认的删除。
+  homeworkSlot: null,
+  homeworkDraft: null,
+  homeworkError: null,
+  homeworkPendingDelete: null,
   dictationClass: '8',
   selectedDictation: null,
   testClass: '8',

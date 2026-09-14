@@ -80,6 +80,11 @@ async function bootstrap() {
     selectedStudent: null,
     rosterClass: '8',
     homeworkClass: '8',
+    homeworkDate: '2026-09-14',
+    homeworkSlot: null,
+    homeworkDraft: null,
+    homeworkError: null,
+    homeworkPendingDelete: null,
     dictationClass: '8',
     selectedDictation: null,
     testClass: '8',
@@ -120,6 +125,17 @@ function typeViolation(studentId, date, value) {
     matches: (selector) => selector === '[data-violation-student]',
     closest: (selector) => (selector === '[data-violation-row]' ? row : null)
   });
+}
+
+// 作业反馈页的控件事件：内容框与备注走 input，状态下拉走 change。
+function typeHomeworkContent(slot, value) {
+  fire('input', { dataset: { homeworkContent: String(slot) }, value, matches: (selector) => selector === '[data-homework-content]' });
+}
+function typeHomeworkNote(studentId, value) {
+  fire('input', { dataset: { homeworkNote: studentId }, value, matches: (selector) => selector === '[data-homework-note]' });
+}
+function changeHomeworkRating(studentId, value) {
+  fire('change', { dataset: { homeworkRating: studentId }, value, matches: (selector) => selector === '[data-homework-rating]' });
 }
 
 const PAGES = [
@@ -278,7 +294,7 @@ test('违纪页有未保存文字时切页面要先确认', { skip: SKIP }, asyn
 
   typeViolation(roster8[1].id, today, '上课说话');
   clickOn({ page: 'dashboard' });
-  assert.ok(root.innerHTML.includes('有未保存的违纪文字'), '有未保存修改时切页要先问一句');
+  assert.ok(root.innerHTML.includes('有未保存的修改'), '有未保存修改时切页要先问一句');
   assert.ok(root.innerHTML.includes('8班违纪记录'), '确认之前不该已经离开');
 
   clickOn({ action: 'keep-editing' });
@@ -288,4 +304,140 @@ test('违纪页有未保存文字时切页面要先确认', { skip: SKIP }, asyn
   clickOn({ action: 'discard-edits' });
   assert.ok(root.innerHTML.includes('今日看板'), '放弃修改后应真的离开');
   assert.equal(storage.get('teacher-local-violations'), undefined, '放弃修改不该往存储里写东西');
+});
+
+test('作业反馈页固定三条作业，没选之前不显示反馈表', { skip: SKIP }, async () => {
+  await bootstrap();
+  clickOn({ page: 'homework' });
+
+  const boxes = root.innerHTML.match(/data-homework-content=/g) || [];
+  assert.equal(boxes.length, 3, '每天固定第 1、2、3 条作业，三条内容框都在');
+  assert.ok(root.innerHTML.includes('第 3 条作业'), '第三条也要固定显示');
+  assert.ok(root.innerHTML.includes('录入反馈'), '每条作业都要有录入反馈的入口');
+  assert.ok(!root.innerHTML.includes('data-homework-rating'), '没选中作业之前不该显示反馈表');
+  assert.ok(!root.innerHTML.includes('处修改未保存'), '刚打开时没有未保存修改');
+});
+
+test('作业反馈：选中一条即显示全班默认「优」，保存写成两张表', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  const { today } = await import('../../app/core/date.js');
+  clickOn({ page: 'homework' });
+
+  // 空作业点「录入反馈」不该进得去（需求 §4.1：空白作业不允许进入反馈表）
+  clickOn({ action: 'homework-slot:1' });
+  assert.ok(!root.innerHTML.includes('data-homework-rating'), '空白作业不允许进入反馈表');
+
+  typeHomeworkContent(1, '第一课词语抄写');
+  clickOn({ action: 'homework-slot:1' });
+  const ratings = root.innerHTML.match(/data-homework-rating=/g) || [];
+  assert.equal(ratings.length, roster8.length, '选中后显示该班全体学生的反馈表');
+  assert.ok(root.innerHTML.includes('备注'), '备注栏始终存在');
+  assert.equal((root.innerHTML.match(/<option selected>优<\/option>/g) || []).length, roster8.length, '每名学生默认「优」');
+  assert.ok(root.innerHTML.includes('1 处修改未保存'), '填了内容就该提示未保存');
+
+  changeHomeworkRating(roster8[1].id, '不交');
+  typeHomeworkNote(roster8[1].id, '没带作业本');
+  // 打字时页面只做局部补丁，DOM 桩里看不到；整体重渲染一次才读得到未保存提示。
+  clickOn({ page: 'homework' });
+  assert.ok(root.innerHTML.includes('2 处修改未保存'), '内容 1 处 + 反馈 1 人 = 2 处');
+  assert.ok(root.innerHTML.includes('<option selected>不交</option>'), '改过的状态在重渲染后仍在');
+
+  clickOn({ action: 'save-homework' });
+  const stored = JSON.parse(storage.get('teacher-local-homework'));
+  assert.equal(stored.version, 2);
+  assert.equal(stored.tasks.length, 1);
+  assert.equal(stored.tasks[0].slot, 1);
+  assert.equal(stored.tasks[0].classNumber, '8');
+  assert.equal(stored.tasks[0].homeworkDate, today);
+  assert.equal(stored.tasks[0].content, '第一课词语抄写');
+  assert.ok(stored.tasks[0].id && stored.tasks[0].createdAt && stored.tasks[0].updatedAt, '作业要带齐 id 和两个时间戳');
+  assert.equal(stored.feedback.length, roster8.length, '第一次保存把全班按默认「优」写进反馈表');
+  const one = stored.feedback.find((row) => row.studentId === roster8[1].id);
+  assert.equal(one.rating, '不交');
+  assert.equal(one.note, '没带作业本');
+  assert.equal(one.homeworkId, stored.tasks[0].id, '反馈挂在作业上，不靠日期猜');
+  assert.ok(!root.innerHTML.includes('处修改未保存'), '保存后不该还是未保存状态');
+
+  // 换页面重新进来：选中状态还在，表格读回已有记录，不重新初始化
+  clickOn({ page: 'dashboard' });
+  clickOn({ page: 'homework' });
+  assert.ok(root.innerHTML.includes('value="第一课词语抄写"'), '内容要读回来');
+  assert.ok(root.innerHTML.includes('value="没带作业本"'), '备注要读回来');
+  assert.ok(root.innerHTML.includes('<option selected>不交</option>'), '状态要读回来');
+  assert.ok(root.innerHTML.includes('已有反馈 ' + roster8.length + ' 人'), '状态牌应报出已反馈人数');
+});
+
+test('作业反馈：三条互不影响，清空一条要二次确认后才删', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  clickOn({ page: 'homework' });
+
+  typeHomeworkContent(1, '第一课词语抄写');
+  clickOn({ action: 'homework-slot:1' });
+  changeHomeworkRating(roster8[0].id, '差');
+  clickOn({ action: 'save-homework' });
+
+  typeHomeworkContent(2, '第二课背诵');
+  clickOn({ action: 'homework-slot:2' });
+  clickOn({ action: 'save-homework' });
+
+  let stored = JSON.parse(storage.get('teacher-local-homework'));
+  assert.equal(stored.tasks.length, 2, '两条作业分别保存');
+  const first = stored.tasks.find((task) => task.slot === 1);
+  const second = stored.tasks.find((task) => task.slot === 2);
+  assert.equal(stored.feedback.filter((row) => row.homeworkId === first.id).length, roster8.length);
+  assert.equal(stored.feedback.filter((row) => row.homeworkId === second.id).length, roster8.length);
+  assert.equal(stored.feedback.find((row) => row.homeworkId === first.id && row.studentId === roster8[0].id).rating, '差', '第 1 条的「差」不该被第 2 条覆盖');
+
+  // 清空第 1 条：先选中它（保存永远只作用于选中的那一条），再有反馈就得先问一句
+  clickOn({ action: 'homework-slot:1' });
+  typeHomeworkContent(1, '');
+  clickOn({ action: 'save-homework' });
+  assert.ok(root.innerHTML.includes('永久删除'), '清空已有反馈的作业要先二次确认');
+  assert.ok(root.innerHTML.includes(String(roster8.length)), '确认框要报出将删除的反馈人数');
+  clickOn({ action: 'cancel-delete-homework' });
+  stored = JSON.parse(storage.get('teacher-local-homework'));
+  assert.equal(stored.tasks.length, 2, '取消确认则什么都不改');
+  assert.equal(stored.tasks.find((task) => task.slot === 1).content, '第一课词语抄写');
+
+  // 再清一次并确认：删掉第 1 条及其反馈，第 2 条不受影响
+  typeHomeworkContent(1, '');
+  clickOn({ action: 'save-homework' });
+  clickOn({ action: 'confirm-delete-homework' });
+  stored = JSON.parse(storage.get('teacher-local-homework'));
+  assert.equal(stored.tasks.length, 1, '第 1 条作业被删除');
+  assert.equal(stored.tasks[0].slot, 2, '剩下的还是第 2 条');
+  assert.equal(stored.tasks[0].content, '第二课背诵', '第 2 条内容没被动过');
+  assert.equal(stored.feedback.filter((row) => row.homeworkId === first.id).length, 0, '第 1 条的反馈级联删除');
+  assert.equal(stored.feedback.filter((row) => row.homeworkId === second.id).length, roster8.length, '第 2 条的反馈一条不少');
+});
+
+test('作业反馈页有未保存修改时切页面要先确认', { skip: SKIP }, async () => {
+  await bootstrap();
+  clickOn({ page: 'homework' });
+  typeHomeworkContent(3, '第三课默写');
+
+  clickOn({ page: 'dashboard' });
+  assert.ok(root.innerHTML.includes('有未保存的修改'), '有未保存修改时切页要先问一句');
+  assert.ok(root.innerHTML.includes('作业反馈'), '确认之前不该已经离开');
+
+  clickOn({ action: 'keep-editing' });
+  assert.ok(root.innerHTML.includes('value="第三课默写"'), '继续编辑应留在原地且内容还在');
+
+  clickOn({ page: 'dashboard' });
+  clickOn({ action: 'discard-edits' });
+  assert.ok(root.innerHTML.includes('今日看板'), '放弃修改后应真的离开');
+  assert.equal(storage.get('teacher-local-homework'), undefined, '放弃修改不该往存储里写东西');
+});
+
+test('旧版作业反馈数据不丢：认出来但不参与当前显示', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  storage.set('teacher-local-homework', JSON.stringify({ '8:2026-09-14': { [roster8[0].id]: { rating: '良', note: '旧版备注' } } }));
+
+  clickOn({ page: 'homework' });
+  assert.ok(root.innerHTML.includes('旧版本留下的作业反馈'), '要如实提示有多少条历史反馈没作业内容可挂');
+  assert.ok(!root.innerHTML.includes('data-homework-rating'), '孤立的旧反馈不该混进反馈表');
+  assert.equal(JSON.parse(storage.get('teacher-local-homework'))['8:2026-09-14'][roster8[0].id].note, '旧版备注', '看一眼不该改动数据');
 });

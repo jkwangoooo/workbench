@@ -20,6 +20,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const TODO_TEXT = '验收用待办事项';
 const VIOLATION_TEXT = '课堂讲话';
 const VIOLATION_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const HOMEWORK_TEXT = '第一课词语抄写';
+const HOMEWORK_TEXT_2 = '第二课背诵';
+const HOMEWORK_NOTE = '没带作业本';
 const LEGACY_HOMEWORK = { '8:2026-09-14': { 'local-8-1': { rating: '优', note: '' } } };
 const BACKUP_FILE_RE = /^workbench-backup-\d{8}-\d{4}\.json$/;
 
@@ -175,6 +178,16 @@ window.__m = {
     const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
+  },
+  setSelect: (el, value) => {
+    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(el, value);
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  },
+  clickSel: (selector) => {
+    const el = document.querySelector(selector);
+    if (!el) return 'NOT_FOUND:' + selector;
+    el.click();
+    return 'OK';
   },
   // 本项目的字段结构是 <div class="local-field"><label>…</label><input></div>，
   // label 与 input 是兄弟节点，所以要先找到 label 所在的字段容器再找控件。
@@ -512,6 +525,143 @@ async function main() {
       '清空并保存即删除，刷新后不复活且该生回到花名册顺序',
       cleared === '' && afterClear.length === 0 && reloaded.firstValue === '' && reloaded.lastRow === target.name,
       `清空后存储条数=${afterClear.length}，刷新后末行=${reloaded.lastRow}`
+    );
+
+    // 6.5 作业与反馈（L2）：三条固定作业域、选中展开全班反馈表、保存两张表、清空二次确认级联删
+    await click('作业反馈');
+    const hwShell = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          slots: document.querySelectorAll('[data-homework-content]').length,
+          slotButtons: [...document.querySelectorAll('[class*="homework-slot"]')].filter((el) => el.tagName === 'BUTTON' || el.matches('[data-action*="homework-slot"]')).length,
+          hasSave: !!window.__m.byText('保存本条作业反馈'),
+          hasClass: !!document.querySelector('[data-homework-class]'),
+          hasDate: !!document.querySelector('[data-homework-picker]'),
+        })
+      `)
+    );
+    record(
+      '作业页展示三条固定作业行与保存按钮',
+      hwShell.slots === 3 && hwShell.hasSave && hwShell.hasClass && hwShell.hasDate,
+      `内容框=${hwShell.slots}，保存=${hwShell.hasSave}`
+    );
+
+    // 填写第 1 条作业内容
+    const hwContentDoc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const hwContentNodes = await cdp.send('DOM.querySelectorAll', { nodeId: hwContentDoc.root.nodeId, selector: '[data-homework-content]' });
+    const firstContentNode = hwContentNodes.nodeIds[0];
+    await cdp.send('DOM.focus', { nodeId: firstContentNode });
+    await cdp.send('Input.insertText', { text: HOMEWORK_TEXT });
+    await sleep(800);
+
+    // 选中第 1 条作业
+    await evaluate(`window.__m.clickSel('[data-action="homework-slot:1"]')`);
+    await sleep(700);
+    const hwTable = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          rows: document.querySelectorAll('[data-homework-rating]').length,
+          firstRating: (() => { const el = document.querySelector('[data-homework-rating]'); return el ? el.value : ''; })(),
+          hasNote: !!document.querySelector('[data-homework-note]'),
+        })
+      `)
+    );
+    record(
+      '选中第 1 条后展开全班反馈表，默认评级为「优」',
+      hwTable.rows > 10 && hwTable.firstRating === '优' && hwTable.hasNote,
+      `反馈行=${hwTable.rows}，默认评级=${hwTable.firstRating}`
+    );
+
+    // 改第 1 名学生状态为"差"并加备注
+    const hwRatingDoc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const hwRatingNodes = await cdp.send('DOM.querySelectorAll', { nodeId: hwRatingDoc.root.nodeId, selector: '[data-homework-rating]' });
+    await cdp.send('DOM.focus', { nodeId: hwRatingNodes.nodeIds[0] });
+    await evaluate(`window.__m.setSelect(document.querySelector('[data-homework-rating]'), '差')`);
+    await sleep(400);
+
+    const hwNoteDoc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const hwNoteNodes = await cdp.send('DOM.querySelectorAll', { nodeId: hwNoteDoc.root.nodeId, selector: '[data-homework-note]' });
+    await cdp.send('DOM.focus', { nodeId: hwNoteNodes.nodeIds[0] });
+    await cdp.send('Input.insertText', { text: HOMEWORK_NOTE });
+    await sleep(600);
+
+    // 保存
+    await click('保存本条作业反馈');
+    const savedHw = JSON.parse(await evaluate(`localStorage.getItem('teacher-local-homework')`));
+    const hasTasks = Array.isArray(savedHw.tasks) && savedHw.tasks.length >= 1;
+    const hasFeedback = Array.isArray(savedHw.feedback) && savedHw.feedback.length >= 1;
+    const task1 = hasTasks ? savedHw.tasks.find((t) => t.slot === 1) : null;
+    const fb1 = hasFeedback ? savedHw.feedback.find((f) => f.rating === '差') : null;
+    record(
+      '保存后写入 v2 两张表：tasks 含第 1 条、feedback 含「差」+备注',
+      hasTasks && hasFeedback && task1 && task1.content === HOMEWORK_TEXT && fb1 && fb1.note === HOMEWORK_NOTE,
+      `tasks=${savedHw.tasks?.length ?? 0}, feedback=${savedHw.feedback?.length ?? 0}, task1.content=${task1?.content}, fb1.note=${fb1?.note}`
+    );
+
+    // 刷新后重进作业页，数据读回
+    await goto();
+    await click('作业反馈');
+    await evaluate(`window.__m.clickSel('[data-action="homework-slot:1"]')`);
+    await sleep(700);
+    const reloadedHw = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          content1: (() => { const els = document.querySelectorAll('[data-homework-content]'); return els[0] ? els[0].value : ''; })(),
+          firstRating: (() => { const el = document.querySelector('[data-homework-rating]'); return el ? el.value : ''; })(),
+          firstNote: (() => { const el = document.querySelector('[data-homework-note]'); return el ? el.value : ''; })(),
+        })
+      `)
+    );
+    record(
+      '刷新后重进作业页：第 1 条内容、评级、备注均正确读回',
+      reloadedHw.content1 === HOMEWORK_TEXT && reloadedHw.firstRating === '差' && reloadedHw.firstNote === HOMEWORK_NOTE,
+      `content=${reloadedHw.content1}, rating=${reloadedHw.firstRating}, note=${reloadedHw.firstNote}`
+    );
+
+    // 清空第 1 条内容 → 有反馈应弹二次确认
+    const clearHwDoc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const clearHwNodes = await cdp.send('DOM.querySelectorAll', { nodeId: clearHwDoc.root.nodeId, selector: '[data-homework-content]' });
+    await cdp.send('DOM.focus', { nodeId: clearHwNodes.nodeIds[0] });
+    for (const type of ['keyDown', 'keyUp']) {
+      await cdp.send('Input.dispatchKeyEvent', { type, modifiers: 2, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65 });
+    }
+    for (const type of ['keyDown', 'keyUp']) {
+      await cdp.send('Input.dispatchKeyEvent', { type, key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 });
+    }
+    await sleep(600);
+    await click('保存本条作业反馈');
+    const confirmDialog = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          modalVisible: !!document.querySelector('.local-modal'),
+          modalText: (document.querySelector('.local-modal') || {}).innerText || '',
+        })
+      `)
+    );
+    record(
+      '清空有反馈的作业内容后弹出二次确认弹窗',
+      confirmDialog.modalVisible && confirmDialog.modalText.includes('永久删除'),
+      `弹窗可见=${confirmDialog.modalVisible}，文案片段=${confirmDialog.modalText.slice(0, 60)}`
+    );
+
+    // 确认删除
+    await click('确认删除这条作业');
+    await sleep(700);
+    const afterDeleteHw = JSON.parse(await evaluate(`localStorage.getItem('teacher-local-homework')`));
+    const remainingTasks = (afterDeleteHw.tasks || []).filter((t) => t.slot === 1).length;
+    const remainingFb = (afterDeleteHw.feedback || []).filter((f) => f.homeworkId && f.homeworkId.includes('-1-')).length;
+    record(
+      '确认后第 1 条任务与对应反馈被级联删除',
+      remainingTasks === 0 && remainingFb === 0,
+      `剩余 slot=1 任务=${remainingTasks}，剩余相关反馈=${remainingFb}`
+    );
+
+    // 其余两条不受影响
+    const otherSlots = (afterDeleteHw.tasks || []).length;
+    record(
+      '其余作业条目不受影响',
+      otherSlots === 0,
+      `剩余总任务数=${otherSlots}（清空前只有 1 条有内容的任务）`
     );
 
     // 7. 旧学生 ID 自动迁移：把旧格式数据塞进存储，并抹掉迁移标记

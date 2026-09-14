@@ -11,7 +11,7 @@ const RECORDS = [
   [LOCAL_KEYS.todos, '待办事项', '条'],
   [LOCAL_KEYS.notes, '快捷记录', '条'],
   [LOCAL_KEYS.violations, '违纪记录', '条'],
-  [LOCAL_KEYS.homework, '作业反馈', '班次'],
+  [LOCAL_KEYS.homework, '作业与反馈', '条'],
   [LOCAL_KEYS.dictation, '听写阶段', '个'],
   [LOCAL_KEYS.tests, '单元测试', '次'],
   [LOCAL_KEYS.planning, '课程单元', '个'],
@@ -23,7 +23,16 @@ const RECORDS = [
 // 分组表和座次表整份只算一张，不按内部字段数计。
 const SINGLE_RECORDS = [LOCAL_KEYS.groupLayout, LOCAL_KEYS.seatingLayout];
 
+// 作业反馈自 L2 起分成「作业」和「学生反馈」两张表，按条计数最贴近直觉；
+// 旧备份里是 `班级:日期` → 学生 ID → 反馈 的两层键，按反馈条数算。
+function homeworkCount(value) {
+  if (!value || typeof value !== 'object') return 0;
+  if (Array.isArray(value.tasks) || Array.isArray(value.feedback)) return (value.tasks?.length || 0) + (value.feedback?.length || 0);
+  return Object.values(value).reduce((sum, group) => sum + (group && typeof group === 'object' ? Object.keys(group).length : 0), 0);
+}
+
 function countFor(key, value) {
+  if (key === LOCAL_KEYS.homework) return homeworkCount(value);
   return SINGLE_RECORDS.includes(key) ? (value ? 1 : 0) : countRecords(value);
 }
 

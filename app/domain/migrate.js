@@ -2,6 +2,7 @@ import { LOCAL_KEYS } from '../core/constants.js';
 import { legacyIdMap } from '../core/roster.js';
 import { read, write } from '../core/storage.js';
 import { collectData } from './backup.js';
+import { feedbackIdOf, isHomeworkV2 } from './homework.js';
 
 export const STUDENT_ID_SCHEMA = 'student-id-v1';
 
@@ -46,6 +47,25 @@ function remapGroupedRecords(input, map) {
     value[groupKey] = inner.value;
   }
   return { value, changed };
+}
+
+// 作业反馈自 L2 起是「作业 + 学生反馈」两张表（见 app/domain/homework.js），
+// 旧的两层键形态仍然要能迁移，所以两种形态都认。
+function remapHomework(input, map) {
+  if (!input || typeof input !== 'object') return { value: input, changed: 0 };
+  if (!isHomeworkV2(input)) return remapGroupedRecords(input, map);
+
+  let changed = 0;
+  const rows = Array.isArray(input.feedback) ? input.feedback : [];
+  const feedback = rows.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    const nextId = map.get(row.studentId);
+    if (!nextId || nextId === row.studentId) return row;
+    changed += 1;
+    // id 里嵌着学生 ID，一起换掉，免得同一条反馈出现两个不同的 id。
+    return { ...row, studentId: nextId, id: feedbackIdOf(row.homeworkId, nextId) };
+  });
+  return { value: { ...input, feedback }, changed };
 }
 
 function remapSheetFields(sheet, map) {
@@ -114,7 +134,7 @@ export function remapStudentIds(data, map = legacyIdMap) {
     return result.value;
   };
 
-  if (data[LOCAL_KEYS.homework]) next[LOCAL_KEYS.homework] = take(remapGroupedRecords(data[LOCAL_KEYS.homework], map));
+  if (data[LOCAL_KEYS.homework]) next[LOCAL_KEYS.homework] = take(remapHomework(data[LOCAL_KEYS.homework], map));
   for (const key of [LOCAL_KEYS.tests, LOCAL_KEYS.dictation]) {
     if (Array.isArray(data[key])) next[key] = take(remapSheets(data[key], map));
   }

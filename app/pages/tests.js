@@ -32,7 +32,7 @@ export function testsPage() {
       ).replace(
         '<label></label>',
         ''
-      )}${selector}${button('新建测试', 'new-test', 'small')}${active ? button('保存成绩', 'save-test', 'primary') : ''}`
+      )}${selector}${button('新建测试', 'new-test', 'small')}${active ? button('保存成绩', 'save-test', 'primary') : ''}${active ? button('打印', 'print-test', 'small') : ''}${active ? button('导出 CSV', 'export-test-csv', 'small') : ''}`
     ) +
     panel(
       active ? `${active.title} · 满分${active.fullScore}` : '单元测试',

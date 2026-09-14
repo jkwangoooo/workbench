@@ -682,3 +682,50 @@ test('备课中心配置合法 https 后按钮可点', { skip: SKIP }, async () 
   assert.ok(!root.innerHTML.includes('disabled'), '打开按钮应可点');
   assert.ok(root.innerHTML.includes('打开备课中心'), '应有打开按钮');
 });
+
+// ── L6 打印 / CSV 导出 / 数据体检渲染测试 ──
+
+test('听写、单元测试、违纪三页都有打印与导出入口', { skip: SKIP }, async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  // 先 seed 一条测试和一条听写，让「打印/导出」按钮渲染出来
+  storage.set(
+    'teacher-local-tests',
+    JSON.stringify([{ id: 't1', title: '第一单元', classNumber: '8', fullScore: 100, scores: { [roster8[0].id]: 90 }, references: {} }])
+  );
+  storage.set(
+    'teacher-local-dictation',
+    JSON.stringify([
+      {
+        id: 'd1',
+        title: '第一单元听写',
+        classNumber: '8',
+        columns: [{ id: 'c1', date: '2026-09-14', name: '第一次' }],
+        targets: {},
+        scores: {}
+      }
+    ])
+  );
+
+  // 单元测试页
+  clickOn({ page: 'tests' });
+  assert.ok(root.innerHTML.includes('data-action="print-test"'), '单元测试页应有打印按钮');
+  assert.ok(root.innerHTML.includes('data-action="export-test-csv"'), '单元测试页应有导出 CSV 按钮');
+
+  // 听写页
+  clickOn({ page: 'dictation' });
+  assert.ok(root.innerHTML.includes('data-action="print-dictation"'), '听写页应有打印按钮');
+  assert.ok(root.innerHTML.includes('data-action="export-dictation-csv"'), '听写页应有导出 CSV 按钮');
+
+  // 违纪页（打印按钮无条件渲染）
+  clickOn({ page: 'violations' });
+  assert.ok(root.innerHTML.includes('data-action="print-violations"'), '违纪页应有打印按钮');
+});
+
+test('数据与备份页概览表带最后修改与占用列', { skip: SKIP }, async () => {
+  await bootstrap();
+  clickOn({ page: 'data' });
+  assert.ok(root.innerHTML.includes('最后修改'), '概览表应有最后修改列');
+  assert.ok(root.innerHTML.includes('占用'), '概览表应有占用列');
+});
+

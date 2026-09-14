@@ -42,7 +42,7 @@ export function dictationPage() {
       ).replace(
         '<label></label>',
         ''
-      )}${selector}${button('新建阶段', 'new-dictation', 'small')}${active ? button('新增听写', 'new-dictation-column', 'small') : ''}${active ? button('保存本阶段', 'save-dictation', 'primary') : ''}`
+      )}${selector}${button('新建阶段', 'new-dictation', 'small')}${active ? button('新增听写', 'new-dictation-column', 'small') : ''}${active ? button('保存本阶段', 'save-dictation', 'primary') : ''}${active ? button('打印', 'print-dictation', 'small') : ''}${active ? button('导出 CSV', 'export-dictation-csv', 'small') : ''}`
     ) + (active ? panel(active.title, table, 'local-span-12') : panel('听写阶段', table, 'local-span-12'))
   );
 }

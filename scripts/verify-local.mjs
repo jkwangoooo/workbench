@@ -28,6 +28,7 @@ const LEGACY_HOMEWORK = { '8:2026-09-14': { 'local-8-1': { rating: '优', note: 
 const BACKUP_FILE_RE = /^workbench-backup-\d{8}-\d{4}\.json$/;
 const WORK_FILE_NAME = '验收用工作文件.txt';
 const PREP_URL = 'https://prep.example.com/';
+const CSV_FILE_RE = /\.csv$/;
 
 /** 向系统要一个空闲端口，避免撞上恰好跑在 4173 上的别的服务。 */
 function findFreePort() {
@@ -209,6 +210,21 @@ window.__m = {
   wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   text: () => document.body.innerText,
   store: (key) => { try { return JSON.parse(localStorage.getItem(key)); } catch { return null } },
+  // 打印窗口在无头模式下不受控，这里把 window.open 换成记录桩：
+  // 记录被调用的次数和写入的 HTML，返回一个带 write/close/print 的假窗口，
+  // 用于验证「打印流程被触发 + 报告 HTML 正确」，而不是去验 Chrome 的打印对话框。
+  wrapPrint: () => {
+    window.__printed = [];
+    const fake = {
+      document: { write(html) { window.__printed.push(html); }, close() {} },
+      focus() {},
+      print() { window.__printed.push('PRINT_CALLED'); }
+    };
+    window.__realOpen = window.open;
+    window.open = () => fake;
+    return 'OK';
+  },
+  printed: () => JSON.stringify(window.__printed || []),
 };
 'ready'
 `;
@@ -279,9 +295,9 @@ async function main() {
       await sleep(700);
     };
     /** 导出会异步落盘，等文件出现且不再增长。 */
-    const waitForDownload = async () => {
+    const waitForDownload = async (nameRe = BACKUP_FILE_RE) => {
       for (let attempt = 0; attempt < 40; attempt += 1) {
-        const hit = readdirSync(downloadDir).find((name) => BACKUP_FILE_RE.test(name));
+        const hit = readdirSync(downloadDir).find((name) => nameRe.test(name));
         if (hit) {
           const path = join(downloadDir, hit);
           const first = readFileSync(path).length;
@@ -964,6 +980,55 @@ async function main() {
       prepRejected === PREP_URL,
       `存储值=${JSON.stringify(prepRejected)}`
     );
+
+    // 7.6 打印 + CSV 导出 + 数据体检（L6）
+    // 7.6.1 数据体检：概览表带「最后修改」「占用」列
+    await click('数据与备份');
+    const healthTable = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          hasLastModified: document.body.innerText.includes('最后修改'),
+          hasBytes: document.body.innerText.includes('占用'),
+        })
+      `)
+    );
+    record(
+      '数据与备份页概览表带最后修改与占用列',
+      healthTable.hasLastModified && healthTable.hasBytes,
+      `最后修改=${healthTable.hasLastModified}, 占用=${healthTable.hasBytes}`
+    );
+
+    // 7.6.2 打印：包装 window.open，验证打印流程触发且报告 HTML 正确
+    // 先 seed 一条单元测试，让「打印/导出」按钮渲染出来
+    await evaluate(`
+      localStorage.setItem('teacher-local-tests', JSON.stringify([
+        { id: 't-verify', title: '验收单元测验', classNumber: '8', fullScore: 100, scores: {}, references: {} }
+      ]));
+      'seeded'
+    `);
+    await click('单元测试');
+    await evaluate(`window.__m.wrapPrint()`);
+    await click('打印');
+    const printedHtml = JSON.parse(await evaluate(`window.__m.printed()`));
+    const printBody = printedHtml.join('');
+    record(
+      '单元测试打印触发打印窗口且报告含成绩表',
+      printBody.includes('PRINT_CALLED') && printBody.includes('单元测试成绩') && printBody.includes('<table>'),
+      `打印调用=${printBody.includes('PRINT_CALLED')}, 含成绩表=${printBody.includes('单元测试成绩')}`
+    );
+
+    // 7.6.3 CSV 导出：点「导出 CSV」应落盘一个 .csv 文件
+    await click('导出 CSV');
+    const csvPath = await waitForDownload(CSV_FILE_RE);
+    record('单元测试导出 CSV 真实落盘', Boolean(csvPath), csvPath ? csvPath.split(/[\\/]/).pop() : '超时未见 csv');
+    if (csvPath) {
+      const csvContent = readFileSync(csvPath, 'utf8');
+      record(
+        'CSV 内容含表头（姓名/成绩/排名）',
+        csvContent.includes('姓名') && csvContent.includes('成绩') && csvContent.includes('当前排名'),
+        `表头片段=${csvContent.split('\n')[0].slice(0, 60)}`
+      );
+    }
 
     // 8. 视口
     for (const [label, width, height] of [

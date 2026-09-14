@@ -28,6 +28,8 @@ import {
   homeworkView
 } from './pages/homework.js';
 import { downloadTemplate, printLayout } from './pages/layouts.js';
+import { dictationReport, testReport, violationsReport } from './domain/print-reports.js';
+import { buildDictationCsv, buildTestCsv, classNameOf } from './domain/export-csv.js';
 import { planningPage } from './pages/planning.js';
 import { prepPage } from './pages/prep.js';
 import { resourcesPage } from './pages/resources.js';
@@ -128,6 +130,75 @@ function saveTest() {
   write(LOCAL_KEYS.tests, all);
   toast('测试成绩已保存');
   render();
+}
+
+// —— 打印报告与 CSV 导出（L6）——
+
+// 打印：复用 layouts.js 的独立打印窗口模式（window.open + document.write + @page A4）。
+// 报告 HTML 由 domain/print-reports.js 纯函数生成，这里只负责开窗、写入、触发打印。
+function printReportHtml(html) {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return toast('浏览器阻止了打印窗口');
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+}
+
+function activeTest() {
+  const tests = read(LOCAL_KEYS.tests, []).filter((item) => item.classNumber === state.testClass);
+  return tests.find((item) => item.id === state.selectedTest) || tests[0] || null;
+}
+
+function activeDictation() {
+  const sheets = read(LOCAL_KEYS.dictation, []).filter((sheet) => sheet.classNumber === state.dictationClass);
+  return sheets.find((sheet) => sheet.id === state.selectedDictation) || sheets[0] || null;
+}
+
+function printTestReport() {
+  const test = activeTest();
+  if (!test) return toast('还没有测试，先新建一次测试');
+  printReportHtml(testReport(test, state.testClass));
+}
+
+function printDictationReport() {
+  const sheet = activeDictation();
+  if (!sheet) return toast('还没有听写阶段，先新建一个阶段');
+  printReportHtml(dictationReport(sheet, state.dictationClass));
+}
+
+function printViolationsReport() {
+  const records = read(LOCAL_KEYS.violations, []);
+  if (!records.length) return toast('还没有违纪记录');
+  printReportHtml(violationsReport(records));
+}
+
+// 下载：复用 Blob + a.download 模式（与 downloadTemplate 一致），CSV 带 BOM 让 Excel 不乱码。
+function downloadText(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function exportTestCsv() {
+  const test = activeTest();
+  if (!test) return toast('还没有测试，先新建一次测试');
+  downloadText(`${classNameOf(state.testClass)}-单元测试-${test.title}.csv`, buildTestCsv(test, state.testClass), 'text/csv;charset=utf-8');
+  toast('已导出测试成绩 CSV');
+}
+
+function exportDictationCsv() {
+  const sheet = activeDictation();
+  if (!sheet) return toast('还没有听写阶段，先新建一个阶段');
+  downloadText(
+    `${classNameOf(state.dictationClass)}-听写-${sheet.title}.csv`,
+    buildDictationCsv(sheet, state.dictationClass),
+    'text/csv;charset=utf-8'
+  );
+  toast('已导出听写成绩 CSV');
 }
 
 async function exportBackup() {
@@ -804,6 +875,11 @@ document.addEventListener('click', (event) => {
   if (action === 'save-dictation') return saveDictation();
   if (action === 'new-test') return openModal('test', '新建单元测试');
   if (action === 'save-test') return saveTest();
+  if (action === 'print-test') return printTestReport();
+  if (action === 'print-dictation') return printDictationReport();
+  if (action === 'print-violations') return printViolationsReport();
+  if (action === 'export-test-csv') return exportTestCsv();
+  if (action === 'export-dictation-csv') return exportDictationCsv();
   if (action === 'new-unit') return openModal('unit', '新增课程单元');
   if (action.startsWith('open-unit:')) return openUnit(action.slice(9));
   if (action === 'new-resource') return openModal('resource', '添加常用网址');

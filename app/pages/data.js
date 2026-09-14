@@ -4,6 +4,7 @@ import { button, esc, head, panel } from '../core/dom.js';
 import { state } from '../core/state.js';
 import { read } from '../core/storage.js';
 import { collectData, countRecords, rosterProfile } from '../domain/backup.js';
+import { formatBytes, lastModifiedAt } from '../domain/data-health.js';
 
 const RECORDS = [
   [LOCAL_KEYS.schedule, '课程表', '时段条目'],
@@ -46,10 +47,27 @@ function countFor(key, value) {
 }
 
 function countTable(data, countLabel) {
-  const counts = RECORDS.map(([key, label, unit]) => ({ label, unit, count: countFor(key, data[key]) }));
+  const counts = RECORDS.map(([key, label, unit]) => {
+    const value = data[key];
+    const lastModified = lastModifiedAt(value);
+    const bytes = value === null || value === undefined ? 0 : JSON.stringify(value).length * 2;
+    return {
+      label,
+      unit,
+      count: countFor(key, value),
+      lastModified: lastModified ? fmtDateTime(new Date(lastModified).toISOString()) : '—',
+      bytes
+    };
+  });
   const total = counts.reduce((sum, item) => sum + item.count, 0);
-  const rows = counts.map((item) => `<tr><td>${esc(item.label)}</td><td>${item.count}</td><td>${esc(item.unit)}</td></tr>`).join('');
-  return `<div class="local-table-wrap"><table class="local-table"><thead><tr><th>数据分类</th><th>${esc(countLabel)}</th><th>单位</th></tr></thead><tbody>${rows}<tr><td><strong>合计</strong></td><td><strong>${total}</strong></td><td></td></tr></tbody></table></div>`;
+  const totalBytes = counts.reduce((sum, item) => sum + item.bytes, 0);
+  const rows = counts
+    .map(
+      (item) =>
+        `<tr><td>${esc(item.label)}</td><td>${item.count}</td><td>${esc(item.unit)}</td><td>${esc(item.lastModified)}</td><td>${esc(formatBytes(item.bytes))}</td></tr>`
+    )
+    .join('');
+  return `<div class="local-table-wrap"><table class="local-table"><thead><tr><th>数据分类</th><th>${esc(countLabel)}</th><th>单位</th><th>最后修改</th><th>占用</th></tr></thead><tbody>${rows}<tr><td><strong>合计</strong></td><td><strong>${total}</strong></td><td></td><td></td><td><strong>${esc(formatBytes(totalBytes))}</strong></td></tr></tbody></table></div>`;
 }
 
 function rosterCheck(backupRoster) {

@@ -48,7 +48,7 @@ export function violationsPage() {
     head(
       '8班违纪记录',
       '每名学生每天只保留一段文字；把文字清空并保存，就等于删除这条记录。只服务 2025 级 8 班。',
-      `<span class="local-violation-meta" data-violation-meta>${meta}</span>${button('放弃修改', 'reset-violations')}${button('保存当天违纪', 'save-violations', 'primary')}`
+      `<span class="local-violation-meta" data-violation-meta>${meta}</span>${button('放弃修改', 'reset-violations')}${button('保存当天违纪', 'save-violations', 'primary')}${button('打印', 'print-violations', 'small')}`
     ) + panel('当天违纪', `${toolbar(view.date)}${failed}${hint}${grid}`, 'local-span-12')
   );
 }

@@ -4,6 +4,20 @@ import { join } from 'node:path';
 
 const ES_MODULE_DIRS = ['app'];
 
+const LAYERS = [
+  ['core/', 0],
+  ['domain/', 1],
+  ['io/', 1],
+  ['pages/', 2],
+  ['ui/', 3]
+];
+
+function layerOf(file) {
+  const rest = file.replace(/^app\//, '');
+  for (const [prefix, layer] of LAYERS) if (rest.startsWith(prefix)) return layer;
+  return 4;
+}
+
 async function walk(dir) {
   const found = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -49,6 +63,11 @@ for (const file of modules) {
     if (!known.has(resolved)) {
       failures += 1;
       console.log(`导入路径无法解析 ${file} -> ${match[1]}（期望 ${resolved}）`);
+      continue;
+    }
+    if (layerOf(resolved) > layerOf(file)) {
+      failures += 1;
+      console.log(`依赖方向错误 ${file} -> ${resolved}（只允许依赖同层或下层）`);
     }
   }
 }

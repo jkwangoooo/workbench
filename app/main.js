@@ -4,6 +4,7 @@ import { state } from './core/state.js';
 import { read, uid, write } from './core/storage.js';
 import { parseGroup } from './domain/group-template.js';
 import { parseSeating } from './domain/seating-template.js';
+import { validateHttpUrl } from './domain/url.js';
 import { readRows } from './io/read-workbook.js';
 import { classManagement } from './pages/class-management.js';
 import { dashboard } from './pages/dashboard.js';
@@ -319,8 +320,20 @@ document.addEventListener('submit', (event) => {
     closeModal();
     toast('课程单元已保存');
   } else if (type === 'resource') {
+    const checked = validateHttpUrl(values.url);
+    if (checked.error) {
+      toast(checked.error);
+      return;
+    }
     const all = read(LOCAL_KEYS.resources, []);
-    all.push({ id: uid('resource'), name: values.name.trim(), url: values.url.trim(), category: values.category.trim(), note: values.note.trim() });
+    all.push({
+      id: uid('resource'),
+      name: values.name.trim(),
+      url: checked.url,
+      category: values.category.trim(),
+      note: values.note.trim(),
+      pinned: false
+    });
     write(LOCAL_KEYS.resources, all);
     closeModal();
     toast('网址已保存');

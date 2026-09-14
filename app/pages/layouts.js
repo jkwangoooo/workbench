@@ -1,6 +1,8 @@
 import { class8Name } from '../core/constants.js';
 import { button, empty, esc, head, panel, toast } from '../core/dom.js';
 import { state } from '../core/state.js';
+import { buildGroupTemplateCsv } from '../domain/group-template.js';
+import { buildSeatingTemplateCsv } from '../domain/seating-template.js';
 
 export function layoutPage(kind) {
   const isGroup = kind === 'groups';
@@ -21,14 +23,7 @@ export function seatingPreview(layout) {
 }
 
 export function downloadTemplate(kind) {
-  const content =
-    kind === 'groups'
-      ? '组别,成员1,成员2,成员3,成员4,组长\n1,,,,,\n'
-      : '模板版本,1\n行数,8,列数,9\n' +
-        Array.from({ length: 8 }, (_, row) =>
-          Array.from({ length: 9 }, (_, column) => (row === 0 && column === 0 ? 'PODIUM' : column === 4 ? 'AISLE' : 'EMPTY')).join(',')
-        ).join('\n') +
-        '\n';
+  const content = kind === 'groups' ? buildGroupTemplateCsv() : buildSeatingTemplateCsv();
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);

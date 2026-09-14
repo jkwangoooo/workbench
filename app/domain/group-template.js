@@ -1,8 +1,14 @@
 import { roster8, studentMap } from '../core/roster.js';
 
+export const GROUP_TEMPLATE_HEADER = ['组别', '成员1', '成员2', '成员3', '成员4', '组长'];
+
+export function buildGroupTemplateCsv() {
+  return `${GROUP_TEMPLATE_HEADER.join(',')}\n1,,,,,\n`;
+}
+
 export function parseGroup(rows) {
   const errors = [];
-  const expected = ['组别', '成员1', '成员2', '成员3', '成员4', '组长'];
+  const expected = GROUP_TEMPLATE_HEADER;
   const header = (rows[0] || []).map((value) => String(value ?? '').trim());
   if (header.join('|') !== expected.join('|')) return { errors: ['分组模板表头或列数不匹配'] };
   const groups = [];

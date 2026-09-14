@@ -13,6 +13,7 @@ const RECORDS = [
   [LOCAL_KEYS.violations, '违纪记录', '条'],
   [LOCAL_KEYS.homework, '作业与反馈', '条'],
   [LOCAL_KEYS.interviews, '面谈记录', '条'],
+  [LOCAL_KEYS.files, '工作文件', '个'],
   [LOCAL_KEYS.dictation, '听写阶段', '个'],
   [LOCAL_KEYS.tests, '单元测试', '次'],
   [LOCAL_KEYS.planning, '课程单元', '个'],

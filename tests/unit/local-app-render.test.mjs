@@ -51,7 +51,9 @@ function installDom() {
   globalThis.CSS = { escape: (value) => value };
   globalThis.FileReader = class {};
   globalThis.Blob = class {};
-  globalThis.URL = { createObjectURL: () => 'blob:local', revokeObjectURL() {} };
+  // URL 需要保留原生的构造器能力（prepWorkflowUrl 用 new URL 校验 https 地址），
+  // 只补充下载文件时用到的 createObjectURL / revokeObjectURL 两个静态方法。
+  globalThis.URL = Object.assign(URL, { createObjectURL: () => 'blob:local', revokeObjectURL() {} });
   globalThis.localStorage = {
     getItem: (key) => (storage.has(key) ? storage.get(key) : null),
     setItem: (key, value) => storage.set(key, String(value)),
@@ -231,6 +233,8 @@ test('数据与备份页能导出一份备份文件', { skip: SKIP }, async () =
 
   lastDownload = null;
   clickOn({ action: 'export-backup' });
+  // exportBackup 是异步的（先收集 IndexedDB 文件），等一个微任务 tick 再断言下载
+  await new Promise((resolve) => setTimeout(resolve, 50));
   assert.match(lastDownload || '', /^workbench-backup-\d{8}-\d{4}\.json$/, '应下载带日期的备份文件');
 });
 
@@ -641,4 +645,40 @@ test('待办页选日期安排待确认事项', { skip: SKIP }, async () => {
   fire('change', { dataset: { todoSchedule: 'todo-y' }, value: today, matches: (s) => s === '[data-todo-schedule]' });
   const stored = JSON.parse(storage.get('teacher-local-todos'));
   assert.equal(stored[0].plannedDate, today, '安排后应写入计划日期');
+});
+
+// ── 资源库（L5）与备课中心渲染测试 ──
+
+test('资源库两个标签页：常用网站与工作文件', { skip: SKIP }, async () => {
+  await bootstrap();
+  clickOn({ page: 'resources' });
+  assert.ok(root.innerHTML.includes('常用网站'), '默认应显示常用网站标签');
+  assert.ok(root.innerHTML.includes('工作文件'), '应有工作文件标签');
+  assert.ok(root.innerHTML.includes('添加网址'), '应有添加网址入口');
+
+  // 切到工作文件
+  clickOn({ resourceTab: 'files' });
+  assert.ok(root.innerHTML.includes('上传工作文件'), '应有上传区');
+  assert.ok(root.innerHTML.includes('选择文件'), '应有文件选择入口');
+  assert.ok(root.innerHTML.includes('搜索文件名'), '应有搜索框');
+});
+
+test('备课中心未配置时入口置灰', { skip: SKIP }, async () => {
+  await bootstrap();
+  clickOn({ page: 'prep' });
+  assert.ok(root.innerHTML.includes('备课中心'), '应渲染备课中心页');
+  assert.ok(root.innerHTML.includes('尚未配置'), '未配置时应提示');
+  assert.ok(root.innerHTML.includes('data-prep-url'), '应有配置输入框');
+  assert.ok(root.innerHTML.includes('disabled'), '打开按钮应置灰');
+});
+
+test('备课中心配置合法 https 后按钮可点', { skip: SKIP }, async () => {
+  await bootstrap();
+  clickOn({ page: 'prep' });
+  // 直接写入配置并重渲染（storage 存的是 JSON 序列化值）
+  storage.set('teacher-local-prep', JSON.stringify('https://prep.example.com'));
+  clickOn({ page: 'prep' });
+  assert.ok(root.innerHTML.includes('已配置'), '已配置时应提示');
+  assert.ok(!root.innerHTML.includes('disabled'), '打开按钮应可点');
+  assert.ok(root.innerHTML.includes('打开备课中心'), '应有打开按钮');
 });

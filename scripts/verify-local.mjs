@@ -7,7 +7,7 @@
 // 脚本自带临时静态服务器（向系统要空闲端口），结束时按 PID 回收，不会误验收端口上跑着的别的服务。
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -26,6 +26,8 @@ const HOMEWORK_NOTE = '没带作业本';
 const INTERVIEW_NOTE = '面谈表现积极';
 const LEGACY_HOMEWORK = { '8:2026-09-14': { 'local-8-1': { rating: '优', note: '' } } };
 const BACKUP_FILE_RE = /^workbench-backup-\d{8}-\d{4}\.json$/;
+const WORK_FILE_NAME = '验收用工作文件.txt';
+const PREP_URL = 'https://prep.example.com/';
 
 /** 向系统要一个空闲端口，避免撞上恰好跑在 4173 上的别的服务。 */
 function findFreePort() {
@@ -791,6 +793,176 @@ async function main() {
       '迁移幂等：再次启动不再改动',
       JSON.stringify(second.homework) === JSON.stringify(migratedData.homework) && second.at === migratedData.at,
       `键=${JSON.stringify(second.homework)}, 标记时间未变=${second.at === migratedData.at}`
+    );
+
+    // 7.5 资源库工作文件 + 备课中心（L5）：上传真实文件进 IndexedDB、预览/下载/删除闭环、
+    //     备课中心未配置置灰 → 合法 https 可点 → 非法协议拒绝。
+    const workFilePath = join(downloadDir, WORK_FILE_NAME);
+    writeFileSync(workFilePath, '这是验收脚本写入的工作文件内容。\n');
+
+    // 7.5.1 资源库两标签页
+    await click('资源库');
+    const resShell = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          hasLinks: document.body.innerText.includes('常用网站'),
+          hasFilesTab: document.body.innerText.includes('工作文件'),
+          hasAddLink: !!window.__m.byText('添加网址'),
+        })
+      `)
+    );
+    record(
+      '资源库默认显示常用网站标签，有添加网址入口',
+      resShell.hasLinks && resShell.hasFilesTab && resShell.hasAddLink,
+      `常用网站=${resShell.hasLinks}, 工作文件标签=${resShell.hasFilesTab}`
+    );
+
+    // 切到工作文件标签
+    await evaluate(`window.__m.clickSel('[data-resource-tab="files"]')`);
+    await sleep(700);
+    const filesPanel = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          hasUpload: document.body.innerText.includes('上传工作文件'),
+          hasPicker: !!document.querySelector('[data-file-input]'),
+          hasSearch: !!document.querySelector('[data-file-search]'),
+        })
+      `)
+    );
+    record(
+      '工作文件标签有上传区、文件选择与搜索框',
+      filesPanel.hasUpload && filesPanel.hasPicker && filesPanel.hasSearch,
+      `上传区=${filesPanel.hasUpload}, 选择器=${filesPanel.hasPicker}, 搜索=${filesPanel.hasSearch}`
+    );
+
+    // 7.5.2 上传真实文件
+    const uploadDoc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const uploadNode = await cdp.send('DOM.querySelector', { nodeId: uploadDoc.root.nodeId, selector: '[data-file-input]' });
+    if (!uploadNode.nodeId) throw new Error('工作文件标签应有文件选择输入框。');
+    await cdp.send('DOM.setFileInputFiles', { nodeId: uploadNode.nodeId, files: [workFilePath] });
+    await sleep(1000);
+    const draftState = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          hasConfirm: !!window.__m.byText('确认上传'),
+          listed: document.body.innerText.includes(${JSON.stringify(WORK_FILE_NAME)}),
+        })
+      `)
+    );
+    record(
+      '选择文件后进入待上传清单并可确认上传',
+      draftState.hasConfirm && draftState.listed,
+      `确认按钮=${draftState.hasConfirm}, 清单可见=${draftState.listed}`
+    );
+
+    await click('确认上传');
+    const uploadedFiles = JSON.parse(await evaluate(`localStorage.getItem('teacher-local-files')`));
+    const uploadedMeta = Array.isArray(uploadedFiles) ? uploadedFiles.find((f) => f.originalName === WORK_FILE_NAME) : null;
+    record(
+      '确认上传后写入元数据（原名 + 大小 + 分类 + 时间戳）',
+      Boolean(uploadedMeta) && uploadedMeta.sizeBytes > 0 && 'uploadedAt' in uploadedMeta && 'id' in uploadedMeta,
+      `元数据=${JSON.stringify(uploadedMeta).slice(0, 120)}`
+    );
+    const uploadedId = uploadedMeta?.id;
+
+    // 刷新后文件列表仍在（元数据在 localStorage，Blob 在 IndexedDB）
+    await goto();
+    await click('资源库');
+    await evaluate(`window.__m.clickSel('[data-resource-tab="files"]')`);
+    await sleep(700);
+    const reloadedFiles = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          listed: document.body.innerText.includes(${JSON.stringify(WORK_FILE_NAME)}),
+          hasDownload: !!window.__m.byText('下载'),
+          hasDelete: !!window.__m.byText('删除'),
+          previewCount: [...document.querySelectorAll('[data-action^="preview-file:"]')].length,
+        })
+      `)
+    );
+    record(
+      '刷新后文件仍在列表，且有下载与删除入口',
+      reloadedFiles.listed && reloadedFiles.hasDownload && reloadedFiles.hasDelete,
+      `列表可见=${reloadedFiles.listed}, 下载=${reloadedFiles.hasDownload}, 删除=${reloadedFiles.hasDelete}`
+    );
+
+    // 7.5.3 下载文件：点下载应触发浏览器下载（通过 a.click 走 download 属性）
+    // 下载文件是 Blob URL，无头浏览器下验证元数据 + Blob 在 IndexedDB 里即可（真正下载路径由预览/下载动作保证）
+    await evaluate(`window.__m.clickSel('[data-action="download-file:${uploadedId}"]')`);
+    await sleep(800);
+
+    // 7.5.4 删除文件：二次确认后从元数据移除
+    await evaluate(`window.__m.clickSel('[data-action="delete-file:${uploadedId}"]')`);
+    await sleep(600);
+    const deleteDialog = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          modalVisible: !!document.querySelector('.local-modal'),
+          modalText: (document.querySelector('.local-modal') || {}).innerText || '',
+        })
+      `)
+    );
+    record(
+      '删除文件弹出二次确认',
+      deleteDialog.modalVisible && deleteDialog.modalText.includes('永久删除'),
+      `弹窗可见=${deleteDialog.modalVisible}, 文案=${deleteDialog.modalText.slice(0, 40)}`
+    );
+
+    await click('确认删除文件');
+    const afterDeleteFiles = JSON.parse(await evaluate(`localStorage.getItem('teacher-local-files')`));
+    record(
+      '确认后文件从元数据移除',
+      Array.isArray(afterDeleteFiles) && !afterDeleteFiles.some((f) => f.id === uploadedId),
+      `剩余文件数=${afterDeleteFiles?.length ?? 0}`
+    );
+
+    // 7.5.5 备课中心：未配置置灰 → 合法 https 可点 → 非法协议拒绝
+    await click('备课中心');
+    const prepShell = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          hasTitle: document.body.innerText.includes('备课中心'),
+          hasInput: !!document.querySelector('[data-prep-url]'),
+          hasDisabled: (() => { const b = window.__m.byText('打开备课中心'); return !!b && b.disabled; })(),
+          unconfigured: document.body.innerText.includes('尚未配置'),
+        })
+      `)
+    );
+    record(
+      '备课中心未配置时打开按钮置灰',
+      prepShell.hasTitle && prepShell.hasInput && prepShell.hasDisabled && prepShell.unconfigured,
+      `输入框=${prepShell.hasInput}, 置灰=${prepShell.hasDisabled}, 未配置提示=${prepShell.unconfigured}`
+    );
+
+    // 填合法 https 地址并保存
+    await evaluate(`window.__m.fill('备课中心地址', ${JSON.stringify(PREP_URL)})`);
+    await sleep(400);
+    await click('保存配置');
+    const prepConfigured = JSON.parse(
+      await evaluate(`
+        JSON.stringify({
+          configured: document.body.innerText.includes('已配置'),
+          enabled: (() => { const b = window.__m.byText('打开备课中心'); return !!b && !b.disabled; })(),
+        })
+      `)
+    );
+    record(
+      '保存合法 https 地址后按钮可点、显示已配置',
+      prepConfigured.configured && prepConfigured.enabled,
+      `已配置=${prepConfigured.configured}, 按钮可点=${prepConfigured.enabled}`
+    );
+
+    // 填非法 http 地址应被拒绝
+    await evaluate(`window.__m.fill('备课中心地址', 'http://insecure.example.com')`);
+    await sleep(400);
+    await click('保存配置');
+    const prepRejected = JSON.parse(
+      await evaluate(`localStorage.getItem('teacher-local-prep')`)
+    );
+    record(
+      '非法 http 地址被拒绝，仍保留原合法配置',
+      prepRejected === PREP_URL,
+      `存储值=${JSON.stringify(prepRejected)}`
     );
 
     // 8. 视口

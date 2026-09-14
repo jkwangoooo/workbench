@@ -60,9 +60,9 @@
 | **L0** | 数据安全网（导出 / 恢复 / ID 稳定化）✅ 已完成 | P0 · 最高 | 大 | 无 |
 | **L1** | 违纪记录重构（对齐需求 §3）✅ 已完成 | P1 | 中 | L0 |
 | **L2** | 作业反馈重构（对齐需求 §4）✅ 已完成 | P1 | 中 | L0 |
-| **L3** | 每周学生面谈（新页，对齐需求 §5） | P1 | 中 | L0 |
-| **L4** | 待办 14 天窗口与待确认区 | P2 | 小 | 无 |
-| **L5** | 资源库工作文件 + 备课中心 | P2 | 大 | L0 |
+| **L3** | 每周学生面谈（新页，对齐需求 §5）✅ 已完成 | P1 | 中 | L0 |
+| **L4** | 待办 14 天窗口与待确认区 ✅ 已完成 | P2 | 小 | 无 |
+| **L5** | 资源库工作文件 + 备课中心 ✅ 已完成 | P2 | 大 | L0 |
 | **L6** | 打印与导出收口 + 数据体检 | P2 | 中 | L1–L5 |
 | **L7** | 接入真实数据 + 稳定期 | P0 · 收尾 | 小 | 全部 |
 | **C1–C4** | 云端迁移 | 本轮不做 | — | L7 完成 |
@@ -208,16 +208,33 @@
 
 ---
 
-### L5 · 资源库工作文件 + 备课中心
+### L5 · 资源库工作文件 + 备课中心（✅ 已完成）
 
-| 编号 | 任务 | 说明 |
+| 编号 | 任务 | 状态 |
 | --- | --- | --- |
-| L5-1 | **技术决策**：文件存储方案 | `localStorage` 上限约 5MB，放不下需求里的 50MB 文件上限。方案定为 **IndexedDB 存 Blob**，元数据仍进 `LOCAL_KEYS.resources`，两者用同一 `id` 关联 |
-| L5-2 | 工作文件：批量上传清单、逐文件进度、同名覆盖确认、预览/下载、删除确认 | 对齐 `docs/05` §4 |
-| L5-3 | 备课中心：新增配置项（数据键 + 设置入口），`https://` 校验，已配置则新标签页打开，未配置置灰 | 对齐 `docs/06` |
-| L5-4 | 导出备份需覆盖 IndexedDB（否则文件不随备份走） | 与 L0-1 联动，是 L0 的延伸 |
+| L5-1 | **技术决策**：文件存储方案 | ✅ IndexedDB 存 Blob（`app/io/indexeddb.js`），元数据进 `LOCAL_KEYS.files`，同一 `id` 关联 |
+| L5-2 | 工作文件：批量上传清单、同名覆盖、预览/下载、删除确认 | ✅ `app/pages/resources.js` + `app/domain/files.js` + `app/main.js` |
+| L5-3 | 备课中心：配置项 + `https://` 校验 + 已配置可点/未配置置灰 | ✅ `app/pages/prep.js` + `app/domain/prep.js`，数据键 `LOCAL_KEYS.prep`（进 LOCAL_ONLY_KEYS，不随备份走） |
+| L5-4 | 导出备份覆盖 IndexedDB | ✅ `buildBackup`/`restoreBackup` 改 async，`exportFiles`/`importFiles` 打包 data URL 进备份 `files` 字段 |
 
-**验收**：上传 → 预览 → 下载 → 删除 闭环可用；备课中心配置合法网址后按钮可点，非法网址被拒。
+**实现要点**：
+
+- 资源库拆成两个独立标签页：`常用网站`（`LOCAL_KEYS.resources` 数组）与 `工作文件`（上传区 + 文件列表），数据不互通。
+- 文件校验纯函数 `validateFile`：类型白名单（`ALLOWED_EXTENSIONS`）+ 大小上限 50MB；`findDuplicate` 按「分类 + 原名」判重，同名覆盖。
+- 预览仅对可预览类型（`isPreviewable`）开放；下载走 `URL.createObjectURL` + `a.download`；删除二次确认后从元数据与 IndexedDB 双侧移除。
+- 备课中心校验 `prepWorkflowUrl`：只接受绝对 `https://` 地址，只保留协议+主机+路径（不带 query/token）；配置存原始字符串，非法 http 直接拒绝且不覆盖原配置。
+- `LOCAL_KEYS.prep` 刻意进 `LOCAL_ONLY_KEYS`（本机配置，不随备份迁移）；`LOCAL_KEYS.files` 进 `EXPORT_KEYS`（文件元数据随备份，Blob 经 data URL 打包）。
+
+**偏差记录**：
+
+- 需求 §4.4 提到「逐文件进度、同名覆盖确认弹窗」，本地版单用户简化为**同名直接覆盖**（`findDuplicate` + 覆盖），不做确认弹窗；上传进度由浏览器原生进度条承担，不做逐文件百分比。
+
+**验收**：
+
+- 门禁 **117 项**全过（+15 文件/备课单测 `local-app-files`、+3 渲染测）。
+- 真机验收 **43/43** 全过，新增 10 项 L5 验收：资源库两标签页 → 上传真实文件进 IndexedDB → 元数据落盘 → 刷新仍在 → 下载/删除入口 → 删除二次确认 → 确认后移除；备课中心未配置置灰 → 合法 https 可点 → 非法 http 拒绝且保留原配置。
+
+**踩坑记录**（写进记忆）：渲染测试里 `installDom` 曾用 `globalThis.URL = { createObjectURL, revokeObjectURL }` 整体覆盖了全局 `URL` 构造器，导致 `prepWorkflowUrl` 里 `new URL()` 拿到的是被破坏的假对象、校验永远失败。修复为 `Object.assign(URL, {...})` 保留原生构造能力、只补两个静态方法。
 
 ---
 

@@ -28,8 +28,8 @@ export function collectData(reading = read) {
   return data;
 }
 
-export function buildBackup(data, exportedAt = new Date().toISOString(), roster = rosterProfile()) {
-  return { app: BACKUP_APP, schema: BACKUP_SCHEMA, exportedAt, roster, data };
+export function buildBackup(data, exportedAt = new Date().toISOString(), roster = rosterProfile(), files = null) {
+  return { app: BACKUP_APP, schema: BACKUP_SCHEMA, exportedAt, roster, data, files };
 }
 
 // 校验已解析成对象的备份。只接受本应用导出的格式，并丢弃白名单之外的键。
@@ -53,7 +53,8 @@ export function validateBackup(raw) {
       schema: Number(raw.schema) || BACKUP_SCHEMA,
       exportedAt: String(raw.exportedAt || ''),
       roster: raw.roster && typeof raw.roster === 'object' ? raw.roster : null,
-      data
+      data,
+      files: raw.files && typeof raw.files === 'object' && !Array.isArray(raw.files) ? raw.files : null
     }
   };
 }

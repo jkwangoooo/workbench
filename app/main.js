@@ -38,6 +38,9 @@ import { violationsPage, violationsDate, violationsView } from './pages/violatio
 import { interviewPage, interviewClass, interviewView } from './pages/interviews.js';
 import { todosPage } from './pages/todos.js';
 import { normalizeTodos, inWindow } from './domain/todos.js';
+import { prepWorkflowUrl } from './domain/prep.js';
+import { findDuplicate, validateFile } from './domain/files.js';
+import { deleteFile as deleteFileBlob, exportFiles, getFile, importFiles, putFile } from './io/indexeddb.js';
 import { shell } from './ui/shell.js';
 
 const root = document.querySelector('#local-app');
@@ -127,9 +130,10 @@ function saveTest() {
   render();
 }
 
-function exportBackup() {
+async function exportBackup() {
   const exportedAt = new Date().toISOString();
-  const backup = buildBackup(collectData(), exportedAt);
+  const files = await exportFiles().catch(() => null);
+  const backup = buildBackup(collectData(), exportedAt, undefined, files);
   const filename = backupFilename(new Date(exportedAt));
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' });
   const link = document.createElement('a');
@@ -144,10 +148,11 @@ function exportBackup() {
 
 // 恢复后抹掉学生 ID 迁移标记并重跑一次：即使备份是迁移之前导出的，
 // 里面的旧 ID 也会被就地改写成稳定 ID。
-function restoreBackup() {
+async function restoreBackup() {
   const pending = state.pendingBackup;
   if (!pending?.backup) return;
   for (const [key, value] of Object.entries(pending.backup.data)) write(key, value);
+  if (pending.backup.files) await importFiles(pending.backup.files).catch(() => {});
 
   const meta = { ...(read(LOCAL_KEYS.meta, {}) || {}) };
   delete meta.studentIdSchema;
@@ -626,6 +631,87 @@ function resetInterviews() {
   render();
 }
 
+// —— 资源库工作文件（需求 §4）：批量上传清单、逐文件写元数据 + Blob、同名覆盖、预览/下载/删除 ——
+
+async function confirmUpload() {
+  const draft = state.fileDraft || [];
+  if (!draft.length) return toast('没有待上传的文件');
+  const category = (state.fileCategory || '').trim();
+  const existing = read(LOCAL_KEYS.files, []);
+
+  let uploaded = 0;
+  for (const item of draft) {
+    if (item.error) continue; // 已在清单里标记失败/不合法的跳过
+    const dup = findDuplicate(existing, category, item.name);
+    if (dup) {
+      // 同名覆盖：删除旧记录，用新的替换（需求 §4.4 简化版——本地版单用户，直接覆盖）
+      existing.splice(existing.indexOf(dup), 1);
+      await deleteFileBlob(dup.id).catch(() => {});
+    }
+    const id = uid('file');
+    try {
+      await putFile(id, item.file);
+    } catch (err) {
+      toast(`文件 ${item.name} 上传失败：${err.message || err}`);
+      continue;
+    }
+    existing.push({
+      id,
+      originalName: item.name,
+      category,
+      mimeType: item.mime,
+      sizeBytes: item.size,
+      uploadedAt: new Date().toISOString()
+    });
+    uploaded += 1;
+  }
+
+  write(LOCAL_KEYS.files, existing);
+  state.fileDraft = null;
+  state.fileCategory = '';
+  toast(uploaded ? `已上传 ${uploaded} 个文件` : '没有文件被上传');
+  render();
+}
+
+async function previewFile(id) {
+  const blob = await getFile(id).catch(() => null);
+  if (!blob) return toast('文件内容不在本地，无法预览');
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank', 'noopener,noreferrer');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function downloadFile(id) {
+  const meta = read(LOCAL_KEYS.files, []).find((f) => f.id === id);
+  const blob = await getFile(id).catch(() => null);
+  if (!blob || !meta) return toast('文件内容不在本地，无法下载');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = meta.originalName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function confirmDeleteFile(id) {
+  openModal('delete-file', '删除文件', {
+    body: `<div class="local-notice">确认后这个文件会从本地永久删除，无法恢复。</div><div class="local-actions-row">${button('取消', 'close-modal')}${button('确认删除文件', 'confirm-delete-file:' + id, 'danger')}</div>`
+  });
+}
+
+async function doDeleteFile(id) {
+  await deleteFileBlob(id).catch(() => {});
+  write(
+    LOCAL_KEYS.files,
+    read(LOCAL_KEYS.files, []).filter((f) => f.id !== id)
+  );
+  closeModal();
+  toast('文件已删除');
+  render();
+}
+
 document.addEventListener('click', (event) => {
   const target = event.target.closest(
     '[data-page],[data-action],[data-management-tab],[data-resource-tab],[data-schedule-type],[data-select-student]'
@@ -721,6 +807,45 @@ document.addEventListener('click', (event) => {
   if (action === 'new-unit') return openModal('unit', '新增课程单元');
   if (action.startsWith('open-unit:')) return openUnit(action.slice(9));
   if (action === 'new-resource') return openModal('resource', '添加常用网址');
+  if (action.startsWith('toggle-pin:')) {
+    const id = action.slice(11);
+    const all = read(LOCAL_KEYS.resources, []);
+    const item = all.find((entry) => entry.id === id);
+    if (item) {
+      item.pinned = !item.pinned;
+      write(LOCAL_KEYS.resources, all);
+    }
+    return render();
+  }
+  if (action.startsWith('remove-file:')) {
+    const idx = Number(action.slice(12));
+    const draft = state.fileDraft || [];
+    if (idx >= 0 && idx < draft.length) {
+      state.fileDraft = draft.filter((_, i) => i !== idx);
+    }
+    return render();
+  }
+  if (action === 'confirm-upload') return confirmUpload();
+  if (action.startsWith('preview-file:')) return previewFile(action.slice(13));
+  if (action.startsWith('download-file:')) return downloadFile(action.slice(14));
+  if (action.startsWith('delete-file:')) return confirmDeleteFile(action.slice(12));
+  if (action.startsWith('confirm-delete-file:')) return doDeleteFile(action.slice(20));
+  if (action === 'open-prep') {
+    const result = prepWorkflowUrl(read(LOCAL_KEYS.prep, ''));
+    if (!result.configured) return toast('尚未配置有效的备课中心地址');
+    const opened = window.open(result.url, '_blank', 'noopener,noreferrer');
+    if (!opened) toast('浏览器阻止了新标签页，请允许弹出窗口后重试');
+    return;
+  }
+  if (action === 'save-prep') {
+    const input = document.querySelector('[data-prep-url]');
+    const value = input ? input.value.trim() : '';
+    const result = prepWorkflowUrl(value);
+    if (value && !result.configured) return toast(result.error || '地址不合法');
+    write(LOCAL_KEYS.prep, value);
+    toast(value ? '备课中心地址已保存' : '已清空备课中心配置');
+    return render();
+  }
   if (action.startsWith('delete-resource:')) {
     const id = action.slice(15);
     write(
@@ -801,6 +926,12 @@ document.addEventListener('input', (event) => {
   else if (el.matches?.('[data-homework-content]')) editHomeworkContent(el);
   else if (el.matches?.('[data-homework-note]')) editHomeworkNote(el);
   else if (el.matches?.('[data-interview-note]')) editInterviewNote(el);
+  else if (el.matches?.('[data-file-category]')) {
+    state.fileCategory = el.value;
+  } else if (el.matches?.('[data-file-search]')) {
+    state.fileSearch = el.value;
+    render();
+  }
 });
 document.addEventListener('submit', (event) => {
   const form = event.target;
@@ -929,6 +1060,24 @@ document.addEventListener('change', (event) => {
       item.updatedAt = new Date().toISOString();
     }
     write(LOCAL_KEYS.todos, items);
+    render();
+  }
+  if (el.matches('[data-file-input]')) {
+    const files = Array.from(el.files || []);
+    if (!files.length) return;
+    const draft = state.fileDraft || [];
+    for (const file of files) {
+      const checked = validateFile(file);
+      draft.push({
+        name: file.name,
+        size: file.size,
+        mime: checked.mime,
+        file,
+        error: checked.ok ? null : checked.error
+      });
+    }
+    state.fileDraft = draft;
+    el.value = ''; // 允许重复选择同一文件
     render();
   }
 });

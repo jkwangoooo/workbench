@@ -76,11 +76,14 @@ npm run check         # 主线：prettier 格式检查 + 单元/逐页渲染测�
 npm test              # 只跑主线测试
 npm run format        # 用 prettier 规范化 app/
 
+npm run verify:local  # 真机验收：起临时服务 + 无头 Chrome，走一遍导出/恢复闭环与两种视口
 npm run check:legacy  # 归档（可选）：tsc 类型检查 + 契约检查 + 归档单元测试
 npm run build:legacy  # 归档：编译 legacy-cloud/src 到 legacy-cloud/dist
 ```
 
 `tests/unit/local-app-render.test.mjs` 会在 DOM 桩上把每个页面真实渲染一遍；若 `private-data/students.js` 不存在则自动跳过。
+
+`npm run verify:local` 需要本机装有 Chrome（可用 `CHROME_PATH` 指定），只用 Node 内置能力驱动，不装任何第三方包。它自带临时静态服务器并自行申请空闲端口，结束时按 PID 回收，因此不会误验收恰好跑在 4173 上的别的服务；对已起好的服务可以 `APP_URL=http://127.0.0.1:4180 npm run verify:local` 复用。脚本只读取，不改动仓库文件。
 
 ## 历史文档
 

@@ -20,5 +20,6 @@ export const state = {
   groupLayout: read(LOCAL_KEYS.groupLayout, null),
   seatingLayout: read(LOCAL_KEYS.seatingLayout, null),
   pendingImport: null,
+  pendingBackup: null,
   modal: null
 };

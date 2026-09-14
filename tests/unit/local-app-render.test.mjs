@@ -82,6 +82,7 @@ async function bootstrap() {
     groupLayout: null,
     seatingLayout: null,
     pendingImport: null,
+    pendingBackup: null,
     modal: null
   });
   delete state.managementTab;
@@ -109,7 +110,8 @@ const PAGES = [
   ['tests', '单元测试'],
   ['planning', '课程规划'],
   ['resources', '资源库'],
-  ['prep', '备课中心']
+  ['prep', '备课中心'],
+  ['data', '数据与备份']
 ];
 
 test('本地版每个页面都能渲染', { skip: SKIP }, async () => {
@@ -171,4 +173,29 @@ test('看板聚合待办与快捷记录', { skip: SKIP }, async () => {
   assert.ok(root.innerHTML.includes('今日 8 班课程'), '看板应有8班课程面板');
   assert.ok(root.innerHTML.includes('待办事项'), '看板应有待办面板');
   assert.ok(root.innerHTML.includes('快捷记录'), '看板应有快捷记录面板');
+});
+
+test('数据与备份页能导出一份备份文件', { skip: SKIP }, async () => {
+  await bootstrap();
+  clickOn({ page: 'data' });
+  assert.ok(root.innerHTML.includes('备份状态'), '应有备份状态面板');
+  assert.ok(root.innerHTML.includes('数据概览'), '应有数据概览面板');
+  assert.ok(root.innerHTML.includes('恢复备份'), '应有恢复备份面板');
+  assert.ok(root.innerHTML.includes('还没有导出过备份'), '未导出时应如实提示');
+
+  lastDownload = null;
+  clickOn({ action: 'export-backup' });
+  assert.match(lastDownload || '', /^workbench-backup-\d{8}-\d{4}\.json$/, '应下载带日期的备份文件');
+});
+
+test('本地数据说明弹窗可以跳到数据与备份页', { skip: SKIP }, async () => {
+  await bootstrap();
+  clickOn({ action: 'data-info' });
+  assert.ok(root.innerHTML.includes('本地数据说明'), '应打开说明弹窗');
+
+  clickOn({ action: 'open-data' });
+  assert.ok(root.innerHTML.includes('数据概览'), '应跳到数据与备份页');
+  // 「本地数据说明」也是顶栏常驻按钮的文案，不能用它判断弹窗是否关闭，
+  // 这里改用只存在于该弹窗正文里的句子。
+  assert.ok(!root.innerHTML.includes('此入口只使用浏览器本地存储'), '跳转后弹窗应关闭');
 });

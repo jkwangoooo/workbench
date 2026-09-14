@@ -30,7 +30,8 @@ export function nav() {
         ['prep', '备课中心'],
         ['resources', '资源库']
       ]
-    ]
+    ],
+    ['数据', [['data', '数据与备份']]]
   ];
   return sections
     .map(
@@ -52,7 +53,8 @@ export function shell(content) {
       schedule: '课程表',
       planning: '课程规划',
       prep: '备课中心',
-      resources: '资源库'
+      resources: '资源库',
+      data: '数据与备份'
     }[state.page] || '今日看板';
   return `<div class="local-shell"><aside class="local-sidebar"><div class="local-brand"><span class="local-mark">教</span><div><strong>班主任工作台</strong><small>本地业务版</small></div></div>${nav()}<div class="local-sidebar-foot">本地数据保存在当前浏览器<br>不连接云端，不上传资料</div></aside><main class="local-main"><header class="local-topbar"><div><div class="local-kicker">2025级 · 教学与班务</div><h1 class="local-title">${esc(title)}</h1></div><div class="local-actions"><span class="local-date">${fmtDate(today)}</span>${button('本地数据说明', 'data-info', 'small')}</div></header><div class="local-content">${content}</div></main></div>${state.modal ? modalHtml() : ''}`;
 }

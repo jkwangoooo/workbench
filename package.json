@@ -13,6 +13,7 @@
     "format:check": "prettier --check app",
     "test": "node --test tests/unit/*.test.mjs",
     "syntax": "node scripts/check-modules.mjs",
+    "verify:local": "node scripts/verify-local.mjs",
     "check": "npm run format:check && npm test && npm run syntax",
     "build:legacy": "tsc -p legacy-cloud/tsconfig.build.json && node scripts/copy-browser-deps.mjs legacy-cloud/dist",
     "check:legacy": "tsc -p legacy-cloud/tsconfig.json && node legacy-cloud/tests/typecheck.mjs && node legacy-cloud/tests/format-check.mjs && node --test legacy-cloud/tests/*.test.mjs"

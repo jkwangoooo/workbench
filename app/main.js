@@ -2,12 +2,16 @@ import { LOCAL_KEYS, slots } from './core/constants.js';
 import { button, esc, toast } from './core/dom.js';
 import { state } from './core/state.js';
 import { read, uid, write } from './core/storage.js';
+import { backupFilename, buildBackup, collectData, validateBackup } from './domain/backup.js';
 import { parseGroup } from './domain/group-template.js';
+import { migrateStudentIds } from './domain/migrate.js';
 import { parseSeating } from './domain/seating-template.js';
 import { validateHttpUrl } from './domain/url.js';
+import { readJsonFile } from './io/read-json.js';
 import { readRows } from './io/read-workbook.js';
 import { classManagement } from './pages/class-management.js';
 import { dashboard } from './pages/dashboard.js';
+import { dataPage } from './pages/data.js';
 import { dictationPage } from './pages/dictation.js';
 import { homeworkPage } from './pages/homework.js';
 import { downloadTemplate, printLayout } from './pages/layouts.js';
@@ -44,7 +48,9 @@ function render() {
                       ? planningPage()
                       : state.page === 'resources'
                         ? resourcesPage()
-                        : prepPage();
+                        : state.page === 'data'
+                          ? dataPage()
+                          : prepPage();
   root.innerHTML = shell(content);
 }
 function openModal(type, title, extra = {}) {
@@ -110,6 +116,41 @@ function saveTest() {
   render();
 }
 
+function exportBackup() {
+  const exportedAt = new Date().toISOString();
+  const backup = buildBackup(collectData(), exportedAt);
+  const filename = backupFilename(new Date(exportedAt));
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  write(LOCAL_KEYS.meta, { ...(read(LOCAL_KEYS.meta, {}) || {}), lastExportedAt: exportedAt });
+  toast(`已导出 ${filename}`);
+  render();
+}
+
+// 恢复后抹掉学生 ID 迁移标记并重跑一次：即使备份是迁移之前导出的，
+// 里面的旧 ID 也会被就地改写成稳定 ID。
+function restoreBackup() {
+  const pending = state.pendingBackup;
+  if (!pending?.backup) return;
+  for (const [key, value] of Object.entries(pending.backup.data)) write(key, value);
+
+  const meta = { ...(read(LOCAL_KEYS.meta, {}) || {}) };
+  delete meta.studentIdSchema;
+  delete meta.studentIdMigratedAt;
+  write(LOCAL_KEYS.meta, { ...meta, restoredAt: new Date().toISOString() });
+  migrateStudentIds();
+
+  state.groupLayout = read(LOCAL_KEYS.groupLayout, null);
+  state.seatingLayout = read(LOCAL_KEYS.seatingLayout, null);
+  state.pendingBackup = null;
+  toast('备份已恢复');
+  render();
+}
+
 document.addEventListener('click', (event) => {
   const target = event.target.closest(
     '[data-page],[data-action],[data-management-tab],[data-resource-tab],[data-schedule-type],[data-select-student]'
@@ -146,9 +187,20 @@ document.addEventListener('click', (event) => {
     return openModal('info', '本地数据说明', {
       body:
         '<div class="local-notice">此入口只使用浏览器本地存储，不读取云端配置、不调用云端接口。私有学生种子仅由本机页面加载。</div><div class="local-actions-row">' +
-        button('知道了', 'close-modal', 'primary') +
+        button('打开数据与备份', 'open-data', 'primary') +
+        button('知道了', 'close-modal') +
         '</div>'
     });
+  if (action === 'open-data') {
+    state.page = 'data';
+    return closeModal();
+  }
+  if (action === 'export-backup') return exportBackup();
+  if (action === 'cancel-restore') {
+    state.pendingBackup = null;
+    return render();
+  }
+  if (action === 'confirm-restore') return restoreBackup();
   if (action === 'schedule' || action === 'temporary-schedule') {
     state.page = 'schedule';
     state.scheduleType = action === 'temporary-schedule' ? 'temporary' : 'class';
@@ -233,6 +285,14 @@ document.addEventListener('change', (event) => {
     readRows(file, (rows, fileErrors) => {
       const parsed = rows ? (state.pendingImport?.kind === 'groups' ? parseGroup(rows) : parseSeating(rows)) : { errors: fileErrors };
       state.pendingImport = { kind: state.pendingImport?.kind, ...parsed };
+      render();
+    });
+  } else if (el.matches('[data-backup-file]')) {
+    const file = el.files[0];
+    if (!file) return;
+    readJsonFile(file, (raw, fileErrors) => {
+      const result = fileErrors ? { ok: false, errors: fileErrors } : validateBackup(raw);
+      state.pendingBackup = result.ok ? { backup: result.backup, ignored: result.ignored } : { backup: null, errors: result.errors };
       render();
     });
   }
@@ -371,4 +431,5 @@ function chooseTemplate(kind) {
   openModal('import', kind === 'groups' ? '导入分组模板' : '导入座次模板', { kind });
 }
 
+migrateStudentIds();
 render();

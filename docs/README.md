@@ -6,6 +6,7 @@
 | --- | --- |
 | [`07-current-local-handoff.md`](./07-current-local-handoff.md) | 接手时的本地版现状盘点、目录说明与风险清单 |
 | [`08-continuation-plan.md`](./08-continuation-plan.md) | 接手推进计划：P0–P4 问题分级、阶段 A–E 执行顺序 |
+| [`09-local-roadmap.md`](./09-local-roadmap.md) | **现行计划**：本地功能实现路线（L0–L7）+ 上云前的接口约束 |
 
 ## 归档：旧云端版
 

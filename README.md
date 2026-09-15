@@ -6,6 +6,12 @@
 
 ## 本地运行
 
+**最省事的办法：双击项目根目录的 `启动工作台.cmd`。**
+
+它会自己检查 Node、首次运行时装依赖、补齐构建产物、起本地静态服务，并把浏览器打开到工作台。用完了把那个黑窗口关掉，服务就停了。（等价于 `npm start`。）
+
+想手动一步步来：
+
 ```bash
 npm install          # 安装依赖（prettier / typescript / xlsx）
 npm run build        # 把浏览器端 xlsx 拷进 dist/vendor/
@@ -18,6 +24,7 @@ npm run serve        # 起本地静态服务
 > 本地版使用 ES 模块加载，**必须通过 HTTP 访问**，直接双击 `index.html`（`file://`）无法运行。
 > 默认端口 4173；若被占用，用 `node scripts/serve.mjs . 4180` 换端口。
 > 也可以直接 `npm run dev`，等于 `build` + `serve` 一步到位。
+> 静态服务默认只监听 `127.0.0.1`（本机），局域网访问不到——里面是学生的真实隐私数据。确实需要手机/平板在同一 Wi-Fi 下打开时，用 `HOST=0.0.0.0 npm run serve` 显式放开。
 
 ## 目录结构
 
@@ -33,7 +40,7 @@ app/                    本地版源码（零构建，浏览器直接运行）
   styles/local.css      样式
 docs/                   当前主线的需求与实施文档（见 docs/README.md）
 legacy-cloud/           归档：旧 Supabase 云端版整代（冻结，见其 README）
-scripts/                构建、静态服务、检查、种子生成
+scripts/                构建、静态服务、检查、种子生成、快捷启动器
 tests/unit/             本地版单元测试与逐页渲染测试
 private-data/           私有学生种子（.gitignore 排除，不进仓库）
 dist/                   构建产物，只含 vendor/xlsx（.gitignore 排除）

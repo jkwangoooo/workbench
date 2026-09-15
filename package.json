@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/copy-browser-deps.mjs dist",
+    "start": "node scripts/launch.mjs",
     "dev": "npm run build && node scripts/serve.mjs",
     "serve": "node scripts/serve.mjs",
     "seed": "node scripts/make-demo-seed.mjs",

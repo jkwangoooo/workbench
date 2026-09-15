@@ -3,6 +3,10 @@
 # 若不锁定，重新 clone 后归档检查会失败。
 * text=auto eol=lf
 
+# Windows 批处理必须 CRLF：LF 行尾下 cmd.exe 解析 for /f、括号块（if (...)）会出错。
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
 # 二进制文件不做换行转换
 *.png binary
 *.jpg binary

@@ -3,7 +3,7 @@
 // 布局：班级选择 + 工作周选择 → 进度条 → 全班逐行（勾选框 + 备注）→ 保存/放弃按钮
 
 import { LOCAL_KEYS, class7Name, class8Name } from '../core/constants.js';
-import { today } from '../core/date.js';
+import { localDateStr, today } from '../core/date.js';
 import { attr, button, empty, esc, head, panel } from '../core/dom.js';
 import { rosterFor } from '../core/roster.js';
 import { state } from '../core/state.js';
@@ -18,14 +18,6 @@ import {
   pendingInterviewChanges,
   weekLabel
 } from '../domain/interviews.js';
-
-/** 本地时区格式化 YYYY-MM-DD（避免 toISOString 的 UTC 跨日问题）。 */
-function localDateStr(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dd}`;
-}
 
 export const interviewClass = () => state.interviewClass || '8';
 

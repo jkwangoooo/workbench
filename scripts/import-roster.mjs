@@ -41,7 +41,7 @@ const COLUMN_ALIASES = {
   name: ['姓名', '学生姓名', '学生', '名字', 'name', 'studentname', 'student_name'],
   className: ['班级', '班别', '所属班级', '行政班', '班级名称', 'class', 'classname', 'class_name'],
   provincialStudentNumber: ['省学籍辅号', '学籍辅号', '学籍号', '省学籍号', '学籍辅号', '省学籍', 'provincialstudentnumber'],
-  examNumber: ['准考证号', '准考证', '考号', '考生号', '考试号', 'examnumber', 'examno', 'exam_no'],
+  examNumber: ['准考证号', '准考证', '考号', '考生号', '考试号', '学号', '学生学号', 'examnumber', 'examno', 'exam_no', 'studentnumber', 'studentno'],
   identityNumber: ['证件号', '身份证号', '身份证', '证件号码', '身份证号码', 'identitynumber', 'idnumber', 'id_number', '证件编号'],
   gender: ['性别', 'sex', 'gender'],
   birthDate: ['出生日期', '出生年月', '生日', '出生', 'birthdate', 'birthday', '出生时间'],

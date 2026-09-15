@@ -28,7 +28,8 @@ function installStorage(initial = {}) {
 
 const { LOCAL_KEYS, EXPORT_KEYS, LOCAL_ONLY_KEYS } = await import('../../app/core/constants.js');
 const { roster8, legacyIdMap } = await import('../../app/core/roster.js');
-const { backupFilename, buildBackup, collectData, countRecords, parseBackup, rosterProfile, validateBackup } = await import('../../app/domain/backup.js');
+const { backupFilename, buildBackup, collectData, countRecords, parseBackup, rosterProfile, validateBackup } =
+  await import('../../app/domain/backup.js');
 const { STUDENT_ID_SCHEMA, migrateStudentIds, remapStudentIds } = await import('../../app/domain/migrate.js');
 
 test('每个数据键都登记进了备份白名单或本机专用名单', () => {
@@ -101,7 +102,10 @@ test('迁移把旧学生 ID 改写为稳定 ID，覆盖成绩、听写与布局'
     [LOCAL_KEYS.tests]: [{ id: 'test-1', scores: { 'local-8-2': 95 }, references: { 'local-8-1': 88 } }],
     [LOCAL_KEYS.dictation]: [{ id: 'dict-1', targets: { 'local-8-1': 90 }, scores: { 'local-8-2:column-1': 80 } }],
     [LOCAL_KEYS.groupLayout]: { templateVersion: 1, groups: [{ groupIndex: 1, members: [{ studentId: 'local-8-1', displayName: '甲' }] }] },
-    [LOCAL_KEYS.seatingLayout]: { templateVersion: 1, cells: [{ rowIndex: 1, columnIndex: 0, cellKind: 'student', studentId: 'local-8-2', displayName: '乙' }] }
+    [LOCAL_KEYS.seatingLayout]: {
+      templateVersion: 1,
+      cells: [{ rowIndex: 1, columnIndex: 0, cellKind: 'student', studentId: 'local-8-2', displayName: '乙' }]
+    }
   };
   const result = remapStudentIds(data, map);
 
@@ -127,7 +131,9 @@ test('L2 之后的两张表形态也能迁移：只换反馈里的学生 ID，�
   const map = new Map([['local-8-1', 'local-8-aaaa1111']]);
   const homework = {
     version: 2,
-    tasks: [{ id: 'homework-8-2026-09-14-1', classNumber: '8', homeworkDate: '2026-09-14', slot: 1, content: '抄写', createdAt: 'x', updatedAt: 'x' }],
+    tasks: [
+      { id: 'homework-8-2026-09-14-1', classNumber: '8', homeworkDate: '2026-09-14', slot: 1, content: '抄写', createdAt: 'x', updatedAt: 'x' }
+    ],
     feedback: [
       { id: 'homework-8-2026-09-14-1|local-8-1', homeworkId: 'homework-8-2026-09-14-1', studentId: 'local-8-1', rating: '优', note: '' },
       { id: 'homework-8-2026-09-14-1|local-8-999', homeworkId: 'homework-8-2026-09-14-1', studentId: 'local-8-999', rating: '良', note: '认不出' }

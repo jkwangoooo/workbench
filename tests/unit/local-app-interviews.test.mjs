@@ -16,26 +16,24 @@ import {
   isValidWeekStart
 } from '../../app/domain/interviews.js';
 
-const now = '2026-09-15T01:00:00.000Z';
-// 动态计算真实周一，避免硬编码日期出错
-const _anchor = new Date(now);
-const _anchorDay = _anchor.getDay(); // 0=Sun .. 6=Sat
-const _thisMon = new Date(_anchor);
-_thisMon.setDate(_anchor.getDate() - (_anchorDay === 0 ? 6 : _anchorDay - 1));
-const WEEK1 = _thisMon.toISOString().slice(0, 10); // 本周周一
-const _nextMon = new Date(_thisMon);
-_nextMon.setDate(_thisMon.getDate() + 7);
-const WEEK2 = _nextMon.toISOString().slice(0, 10); // 下周一
+// 固定两个周一：2026-09-14 与 2026-09-21。写死比按真实时钟推算更稳——
+// 之前用 new Date(...) 再 toISOString() 取日期，是 UTC 口径，
+// 一旦运行时区落在 UTC 负偏移或跨日边界，算出来的「周一」可能不是周一。
+const WEEK1 = '2026-09-14'; // 本周周一
+const WEEK2 = '2026-09-21'; // 下周一
+
+// 落盘用的时间戳同样写死，测试不读真实时钟。
+const now = '2026-09-14T08:00:00.000Z';
+
+// 下面这些断言全依赖 WEEK1/WEEK2 真是周一，先自证一次，写错了能立刻看出是哪一行的问题。
+assert.equal(new Date(`${WEEK1}T12:00:00`).getDay(), 1, `${WEEK1} 应当是周一`);
+assert.equal(new Date(`${WEEK2}T12:00:00`).getDay(), 1, `${WEEK2} 应当是周一`);
 
 function makeStudent(id, name) {
   return { id, name, sortOrder: 0 };
 }
 
-const students = [
-  makeStudent('local-8-aaa', '张三'),
-  makeStudent('local-8-bbb', '李四'),
-  makeStudent('local-8-ccc', '王五')
-];
+const students = [makeStudent('local-8-aaa', '张三'), makeStudent('local-8-bbb', '李四'), makeStudent('local-8-ccc', '王五')];
 
 describe('面谈领域逻辑', () => {
   it('确定性 ID：元组 (班级, 学生, 周一) 可推导且稳定', () => {
@@ -49,17 +47,16 @@ describe('面谈领域逻辑', () => {
     // mondayOf 核心契约：给定任意合法日期输入，返回格式正确的日期字符串
     const r = mondayOf('2026-09-15');
     assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(r), `格式错误: ${r}`);
-    // WEEK1/WEEK2 由同算法生成，结果应一致
+    // 周二应回退到同一周的周一，且幂等
+    assert.equal(r, WEEK1);
     assert.equal(mondayOf(WEEK1), mondayOf(mondayOf(WEEK1)));
   });
 
   it('isValidWeekStart: 只接受周一日期', () => {
     // WEEK1 是合法周一
     assert.ok(isValidWeekStart(WEEK1));
-    // 周二不合法
-    const tue = new Date(WEEK1);
-    tue.setDate(tue.getDate() + 1);
-    assert.ok(!isValidWeekStart(tue.toISOString().slice(0, 10)));
+    // 次日（周二）不合法
+    assert.ok(!isValidWeekStart('2026-09-15'));
   });
 
   it('weekLabel 返回可读的周范围文案', () => {
@@ -125,7 +122,11 @@ describe('面谈领域逻辑', () => {
       ['local-8-bbb', { completed: false }],
       ['local-8-ccc', { completed: false }]
     ]);
-    const ordered = orderStudents(students.map((s) => s.id), saved, drafts);
+    const ordered = orderStudents(
+      students.map((s) => s.id),
+      saved,
+      drafts
+    );
     // 未面谈：bbb, ccc；已面谈：aaa
     assert.equal(ordered[0], 'local-8-bbb');
     assert.equal(ordered[1], 'local-8-ccc');
@@ -142,9 +143,7 @@ describe('面谈领域逻辑', () => {
 
   it('planSaveInterview: 首次保存写入记录', () => {
     const empty = normalizeInterviews(null);
-    const drafts = new Map([
-      [students[0].id, { completed: true, note: '表现好' }]
-    ]);
+    const drafts = new Map([[students[0].id, { completed: true, note: '表现好' }]]);
     const outcome = planSaveInterview(empty, {
       classNumber: '8',
       weekStart: WEEK1,

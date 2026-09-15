@@ -9,7 +9,7 @@
 // 旧形态兼容：{ id, text, due, done } 读取时自动转成新形态，
 // 所以不需要一次迁移脚本（对齐 L1 违纪、L2 作业的设计选择）。
 
-import { today } from '../core/date.js';
+import { localDateStr, today } from '../core/date.js';
 
 export const TODO_SCHEMA = 1;
 
@@ -59,14 +59,6 @@ export function todoWindow(from = today) {
     days.push(localDateStr(d));
   }
   return days;
-}
-
-/** 本地时区格式化 YYYY-MM-DD（避免 toISOString 的 UTC 跨日问题）。 */
-export function localDateStr(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dd}`;
 }
 
 /** 判断某待办是否已过期（计划日期早于今天，且未完成）。 */

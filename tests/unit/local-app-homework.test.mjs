@@ -24,8 +24,20 @@ globalThis.window = {
 };
 
 const { roster7, roster8 } = await import('../../app/core/roster.js');
-const { DEFAULT_RATING, HOMEWORK_RATINGS, buildContents, buildFeedback, feedbackCounts, feedbackFor, normalizeHomework, orphanFeedback, pendingContentChanges, pendingFeedbackChanges, planSave, tasksFor } =
-  await import('../../app/domain/homework.js');
+const {
+  DEFAULT_RATING,
+  HOMEWORK_RATINGS,
+  buildContents,
+  buildFeedback,
+  feedbackCounts,
+  feedbackFor,
+  normalizeHomework,
+  orphanFeedback,
+  pendingContentChanges,
+  pendingFeedbackChanges,
+  planSave,
+  tasksFor
+} = await import('../../app/domain/homework.js');
 
 const [JIA, YI, BING] = roster8.map((student) => student.id);
 const DAY = '2026-09-14';
@@ -52,7 +64,10 @@ test('旧形态读出来是「孤立反馈」：没有作业内容可挂，但�
 
   assert.equal(data.tasks.length, 0, '旧形态没有作业内容，不该凭空造一条作业');
   assert.equal(data.feedback.length, 2);
-  assert.equal(data.feedback.every((row) => row.legacy === true), true);
+  assert.equal(
+    data.feedback.every((row) => row.legacy === true),
+    true
+  );
   assert.equal(orphanFeedback(data.tasks, data.feedback).length, 2, '挂不上作业的反馈要能数出来给页面提示');
   assert.equal(data.feedback.find((row) => row.studentId === YI).note, '家长已知');
 });
@@ -99,7 +114,11 @@ test('第一次保存一条作业：内容落盘，全班按默认「优」写�
   assert.equal(outcome.feedback.filter((row) => row.rating === DEFAULT_RATING).length, roster8.length - 1);
   assert.equal(outcome.feedback.find((row) => row.studentId === YI).rating, '不交');
   assert.equal(outcome.feedback.find((row) => row.studentId === YI).note, '没带作业本');
-  assert.equal(outcome.feedback.every((row) => row.homeworkId === outcome.tasks[0].id), true, '反馈都挂在同一条作业上');
+  assert.equal(
+    outcome.feedback.every((row) => row.homeworkId === outcome.tasks[0].id),
+    true,
+    '反馈都挂在同一条作业上'
+  );
 });
 
 test('再次保存读回已有记录：不重新初始化，也没动过的行不改时间戳', () => {
@@ -178,7 +197,11 @@ test('三条作业互不影响：保存第 2 条不碰第 1 条、同日其他�
   assert.equal(afterTask.content, '第一课词语抄写', '第 1 条作业内容一个字段都不该被第 2 条带着改');
   assert.deepEqual(afterRow, firstRow, '第 1 条的反馈原样不动');
   assert.equal(second.tasks.filter((task) => task.classNumber === '8' && task.homeworkDate === DAY).length, 2);
-  assert.equal(seven.tasks.every((task) => second.tasks.some((item) => item.id === task.id)), true, '7 班的作业原样带走');
+  assert.equal(
+    seven.tasks.every((task) => second.tasks.some((item) => item.id === task.id)),
+    true,
+    '7 班的作业原样带走'
+  );
   assert.equal(second.feedback.filter((row) => row.homeworkId.startsWith('homework-7-')).length, roster7.length);
 });
 
@@ -224,8 +247,16 @@ test('清空没有反馈的作业只是普通保存：不弹确认，同日其�
   const outcome = planSave(orphaned, { classNumber: '8', date: DAY, slot: 2, content: '', feedback: {}, students: roster8, now: NOW });
   assert.equal(outcome.needsConfirm, null, '没有反馈就不该要二次确认');
   assert.equal(outcome.deleted.feedbackCount, 0);
-  assert.equal(outcome.tasks.some((task) => task.slot === 2), false, '空作业被收掉');
-  assert.equal(outcome.tasks.some((task) => task.slot === 1), true, '第 1 条作业原样留着');
+  assert.equal(
+    outcome.tasks.some((task) => task.slot === 2),
+    false,
+    '空作业被收掉'
+  );
+  assert.equal(
+    outcome.tasks.some((task) => task.slot === 1),
+    true,
+    '第 1 条作业原样留着'
+  );
   assert.equal(outcome.feedback.length, roster8.length, '第 1 条的反馈一条不少');
 });
 
@@ -234,12 +265,28 @@ test('状态不在四档、或出现名单外的学生：整批不落盘并说�
   const view = feedbackFor(first.feedback, first.tasks[0].id);
   const draft = buildFeedback(roster8, view);
 
-  const badRating = planSave(first, { classNumber: '8', date: DAY, slot: 1, content: '第一课词语抄写', feedback: { ...draft, [JIA]: { rating: '及格', note: '' } }, students: roster8, now: NOW });
+  const badRating = planSave(first, {
+    classNumber: '8',
+    date: DAY,
+    slot: 1,
+    content: '第一课词语抄写',
+    feedback: { ...draft, [JIA]: { rating: '及格', note: '' } },
+    students: roster8,
+    now: NOW
+  });
   assert.equal(badRating.problems.length, 1);
   assert.match(badRating.problems[0].reason, /不交 \/ 优 \/ 良 \/ 差/);
   assert.deepEqual(badRating.tasks, first.tasks, '原样退回，等于没写');
 
-  const stranger = planSave(first, { classNumber: '8', date: DAY, slot: 1, content: '第一课词语抄写', feedback: { ...draft, 'local-7-nobody': { rating: '优', note: '' } }, students: roster8, now: NOW });
+  const stranger = planSave(first, {
+    classNumber: '8',
+    date: DAY,
+    slot: 1,
+    content: '第一课词语抄写',
+    feedback: { ...draft, 'local-7-nobody': { rating: '优', note: '' } },
+    students: roster8,
+    now: NOW
+  });
   assert.equal(stranger.problems.length, 1);
   assert.match(stranger.problems[0].reason, /不在当前班级名单里/);
 
@@ -260,7 +307,11 @@ test('草稿默认「优」，未保存差异只算真正变了的', () => {
   assert.equal(draft[YI].rating, '不交');
   assert.deepEqual(pendingFeedbackChanges(roster8, view, draft), [], '读回来的和已保存的一样，就不算改动');
   assert.deepEqual(pendingFeedbackChanges(roster8, view, { ...draft, [JIA]: { rating: '良', note: '' } }), [JIA]);
-  assert.deepEqual(pendingFeedbackChanges(roster8, view, { ...draft, [YI]: { rating: '不交', note: '  补一句  ' } }), [YI], '备注去掉首尾空白后一样就算没改');
+  assert.deepEqual(
+    pendingFeedbackChanges(roster8, view, { ...draft, [YI]: { rating: '不交', note: '  补一句  ' } }),
+    [YI],
+    '备注去掉首尾空白后一样就算没改'
+  );
 
   const contents = buildContents(bySlot);
   assert.equal(contents[1], '第一课词语抄写');

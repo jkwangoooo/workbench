@@ -1,6 +1,16 @@
 import { weekdays } from './constants.js';
 
-export const today = new Date().toISOString().slice(0, 10);
+/**
+ * 按本地时区格式化为 YYYY-MM-DD。
+ * 不能用 toISOString()：它按 UTC 切日，北京时间 0:00–8:00 会算成前一天，
+ * 早上第一节课录入的违纪文字、作业反馈会默认落在昨天那一栏。
+ */
+export function localDateStr(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+export const today = localDateStr();
 
 export function fmtDate(value) {
   return value ? String(value).replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$1年$2月$3日') : '';

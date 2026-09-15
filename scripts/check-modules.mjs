@@ -48,12 +48,7 @@ for (const file of modules) {
   } catch (error) {
     failures += 1;
     console.log(`语法错误 ${file}`);
-    console.log(
-      String(error.stderr)
-        .split('\n')
-        .slice(0, 6)
-        .join('\n')
-    );
+    console.log(String(error.stderr).split('\n').slice(0, 6).join('\n'));
     continue;
   }
   const text = await readFile(file, 'utf8');
@@ -79,12 +74,7 @@ for (const file of legacy) {
   } catch (error) {
     failures += 1;
     console.log(`语法错误 ${file}`);
-    console.log(
-      String(error.stderr)
-        .split('\n')
-        .slice(0, 6)
-        .join('\n')
-    );
+    console.log(String(error.stderr).split('\n').slice(0, 6).join('\n'));
   }
 }
 

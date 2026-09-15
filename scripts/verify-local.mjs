@@ -235,7 +235,11 @@ function record(name, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  → ${detail}` : ''}`);
 }
 function firstLine(value, limit = 100) {
-  return String(value ?? '').split('\n').filter(Boolean).join(' / ').slice(0, limit);
+  return String(value ?? '')
+    .split('\n')
+    .filter(Boolean)
+    .join(' / ')
+    .slice(0, limit);
 }
 
 const stamp = Date.now();
@@ -677,11 +681,7 @@ async function main() {
 
     // 其余两条不受影响
     const otherSlots = (afterDeleteHw.tasks || []).length;
-    record(
-      '其余作业条目不受影响',
-      otherSlots === 0,
-      `剩余总任务数=${otherSlots}（清空前只有 1 条有内容的任务）`
-    );
+    record('其余作业条目不受影响', otherSlots === 0, `剩余总任务数=${otherSlots}（清空前只有 1 条有内容的任务）`);
 
     // 6.6 学生面谈（L3）：工作周、勾选+备注、整批保存成 v1、取消勾选保留备注、清空即删除
     await click('学生面谈');
@@ -757,9 +757,13 @@ async function main() {
       (() => {
         const sel = document.querySelector('[data-todo-schedule]');
         if (!sel) return 'NO_SEL';
-        sel.value = ${JSON.stringify(new Date().toISOString().slice(0, 10))};
+        // 下拉里的第一个有效选项就是「今天」（占位项 value 为空要跳过），别自己算日期。
+        // 早先这里写的是 new Date().toISOString().slice(0,10)，按 UTC 切日，
+        // 北京时间 0:00–8:00 会算成昨天，落在窗口外被 inWindow 拒掉。
+        const opt = [...sel.options].find((o) => o.value);
+        sel.value = opt ? opt.value : '';
         sel.dispatchEvent(new Event('change', { bubbles: true }));
-        return 'OK';
+        return sel.value ? 'OK' : 'EMPTY';
       })()
     `);
     await sleep(700);
@@ -972,14 +976,8 @@ async function main() {
     await evaluate(`window.__m.fill('备课中心地址', 'http://insecure.example.com')`);
     await sleep(400);
     await click('保存配置');
-    const prepRejected = JSON.parse(
-      await evaluate(`localStorage.getItem('teacher-local-prep')`)
-    );
-    record(
-      '非法 http 地址被拒绝，仍保留原合法配置',
-      prepRejected === PREP_URL,
-      `存储值=${JSON.stringify(prepRejected)}`
-    );
+    const prepRejected = JSON.parse(await evaluate(`localStorage.getItem('teacher-local-prep')`));
+    record('非法 http 地址被拒绝，仍保留原合法配置', prepRejected === PREP_URL, `存储值=${JSON.stringify(prepRejected)}`);
 
     // 7.6 打印 + CSV 导出 + 数据体检（L6）
     // 7.6.1 数据体检：概览表带「最后修改」「占用」列
@@ -1037,9 +1035,7 @@ async function main() {
     ]) {
       await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 500 });
       await sleep(800);
-      const metrics = JSON.parse(
-        await evaluate(`JSON.stringify({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth })`)
-      );
+      const metrics = JSON.parse(await evaluate(`JSON.stringify({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth })`));
       record(`${label} 无横向溢出`, metrics.scroll <= metrics.inner + 1, `scrollWidth=${metrics.scroll}, innerWidth=${metrics.inner}`);
     }
     await cdp.send('Emulation.clearDeviceMetricsOverride');

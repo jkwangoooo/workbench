@@ -1,12 +1,53 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, access } from 'node:fs/promises';
 
-const SEED_PATH = 'private-data/students.js';
-const SKIP = await access(SEED_PATH).then(
-  () => false,
-  () => `${SEED_PATH} 不存在（私有种子未生成），跳过本地版渲染测试`
-);
+// 渲染测试用一份固定的内联测试种子，不读 private-data/students.js。
+// 这样真实名单替换后测试仍然确定通过，不受私有数据变动影响。
+const TEST_SEED = {
+  classes: [
+    {
+      name: '2025级8班',
+      students: [
+        {
+          name: '八班示例01',
+          sortOrder: 0,
+          identityNumber: '示例证件号-01',
+          provincialStudentNumber: '示例学籍辅号-01',
+          examNumber: '示例准考证-01',
+          profile: { 性别: '男', 出生日期: '2012-01-01', 联系电话: '示例电话-01', 家庭住址: '示例地址-01', 备注: '脱敏演示数据' }
+        },
+        {
+          name: '八班示例02',
+          sortOrder: 1,
+          identityNumber: '示例证件号-02',
+          provincialStudentNumber: '示例学籍辅号-02',
+          examNumber: '示例准考证-02',
+          profile: { 性别: '女' }
+        },
+        {
+          name: '八班示例03',
+          sortOrder: 2,
+          identityNumber: '示例证件号-03',
+          provincialStudentNumber: '示例学籍辅号-03',
+          examNumber: '示例准考证-03',
+          profile: { 性别: '男' }
+        }
+      ]
+    },
+    {
+      name: '2025级7班',
+      students: [
+        { name: '七班示例01', sortOrder: 0 },
+        { name: '七班示例02', sortOrder: 1 }
+      ]
+    }
+  ]
+};
+
+// 测试不读真实时钟：固定的「今天」同时充当违纪/作业的默认日期与面谈页的起始工作周。
+// 2026-09-14 是周一，mondayOf(FIXED_DATE) === FIXED_DATE，所以两个用途能共用同一个常量；
+// 一旦测试用 today、种子写死日期，跨过一个 UTC 日界就会飘红（2026-09-15 早上真发生过）。
+const FIXED_DATE = '2026-09-14';
 
 const listeners = new Map();
 let root = null;
@@ -67,10 +108,6 @@ function installDom() {
 }
 
 async function bootstrap() {
-  const source = await readFile(SEED_PATH, 'utf8');
-  const holder = {};
-  new Function('window', source)(holder);
-
   listeners.clear();
   storage = new Map();
   installDom();
@@ -82,7 +119,7 @@ async function bootstrap() {
     selectedStudent: null,
     rosterClass: '8',
     homeworkClass: '8',
-    homeworkDate: '2026-09-14',
+    homeworkDate: FIXED_DATE,
     homeworkSlot: null,
     homeworkDraft: null,
     homeworkError: null,
@@ -97,7 +134,7 @@ async function bootstrap() {
     seatingLayout: null,
     pendingImport: null,
     pendingBackup: null,
-    violationsDate: '2026-09-14',
+    violationsDate: FIXED_DATE,
     violationsDraft: null,
     violationsSessionOrder: [],
     violationsError: null,
@@ -110,7 +147,7 @@ async function bootstrap() {
   });
   delete state.managementTab;
 
-  globalThis.window.WORKBENCH_SEED = holder.WORKBENCH_SEED;
+  globalThis.window.WORKBENCH_SEED = TEST_SEED;
   root = { innerHTML: '' };
   bootCount += 1;
   await import(`../../app/main.js?boot=${bootCount}`);
@@ -161,7 +198,7 @@ const PAGES = [
   ['data', '数据与备份']
 ];
 
-test('本地版每个页面都能渲染', { skip: SKIP }, async () => {
+test('本地版每个页面都能渲染', async () => {
   await bootstrap();
   assert.ok(root.innerHTML.includes('班主任工作台'), '应渲染工作台外壳');
   for (const [page, title] of PAGES) {
@@ -170,7 +207,7 @@ test('本地版每个页面都能渲染', { skip: SKIP }, async () => {
   }
 });
 
-test('花名册读到种子数据且两班不串台', { skip: SKIP }, async () => {
+test('花名册读到种子数据且两班不串台', async () => {
   await bootstrap();
   clickOn({ page: 'roster' });
   assert.ok(root.innerHTML.includes('八班示例01'), '8班目录应有第一名学生');
@@ -181,7 +218,7 @@ test('花名册读到种子数据且两班不串台', { skip: SKIP }, async () =
   assert.ok(!root.innerHTML.includes('八班示例01'), '7班目录不应出现8班学生');
 });
 
-test('8班学生档案按需显示且四列齐全', { skip: SKIP }, async () => {
+test('8班学生档案按需显示且四列齐全', async () => {
   await bootstrap();
   clickOn({ managementTab: 'profile' });
   clickOn({ page: 'class-management' });
@@ -193,7 +230,7 @@ test('8班学生档案按需显示且四列齐全', { skip: SKIP }, async () => 
   assert.ok(root.innerHTML.includes('示例学籍辅号-01'), '花名册应显示省学籍辅号');
 });
 
-test('违纪页取代了弹窗式新增，模板下载与导入入口可用', { skip: SKIP }, async () => {
+test('违纪页取代了弹窗式新增，模板下载与导入入口可用', async () => {
   await bootstrap();
 
   clickOn({ action: 'violations' });
@@ -215,7 +252,7 @@ test('违纪页取代了弹窗式新增，模板下载与导入入口可用', { 
   assert.ok(root.innerHTML.includes('组别'), '导入弹窗应说明模板表头');
 });
 
-test('看板聚合待办与快捷记录', { skip: SKIP }, async () => {
+test('看板聚合待办与快捷记录', async () => {
   await bootstrap();
   assert.ok(root.innerHTML.includes('今日我的课程'), '看板应有我的课程面板');
   assert.ok(root.innerHTML.includes('今日 8 班课程'), '看板应有8班课程面板');
@@ -223,7 +260,7 @@ test('看板聚合待办与快捷记录', { skip: SKIP }, async () => {
   assert.ok(root.innerHTML.includes('快捷记录'), '看板应有快捷记录面板');
 });
 
-test('数据与备份页能导出一份备份文件', { skip: SKIP }, async () => {
+test('数据与备份页能导出一份备份文件', async () => {
   await bootstrap();
   clickOn({ page: 'data' });
   assert.ok(root.innerHTML.includes('备份状态'), '应有备份状态面板');
@@ -238,7 +275,7 @@ test('数据与备份页能导出一份备份文件', { skip: SKIP }, async () =
   assert.match(lastDownload || '', /^workbench-backup-\d{8}-\d{4}\.json$/, '应下载带日期的备份文件');
 });
 
-test('本地数据说明弹窗可以跳到数据与备份页', { skip: SKIP }, async () => {
+test('本地数据说明弹窗可以跳到数据与备份页', async () => {
   await bootstrap();
   clickOn({ action: 'data-info' });
   assert.ok(root.innerHTML.includes('本地数据说明'), '应打开说明弹窗');
@@ -250,11 +287,11 @@ test('本地数据说明弹窗可以跳到数据与备份页', { skip: SKIP }, a
   assert.ok(!root.innerHTML.includes('此入口只使用浏览器本地存储'), '跳转后弹窗应关闭');
 });
 
-test('违纪页把全班铺成一行一人，并预填当天已保存的文字', { skip: SKIP }, async () => {
+test('违纪页把全班铺成一行一人，并预填当天已保存的文字', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
   // 旧形态（date / student 姓名 / text）也要能读出来
-  storage.set('teacher-local-violations', JSON.stringify([{ id: 'v1', date: '2026-09-14', student: roster8[0].name, text: '课堂讲话' }]));
+  storage.set('teacher-local-violations', JSON.stringify([{ id: 'v1', date: FIXED_DATE, student: roster8[0].name, text: '课堂讲话' }]));
 
   clickOn({ page: 'violations' });
   const boxes = root.innerHTML.match(/data-violation-student=/g) || [];
@@ -265,13 +302,12 @@ test('违纪页把全班铺成一行一人，并预填当天已保存的文字',
   assert.ok(!root.innerHTML.includes('处修改未保存'), '刚打开时没有未保存修改');
 });
 
-test('违纪页整批保存成新形态，清空并保存即删除', { skip: SKIP }, async () => {
+test('违纪页整批保存成新形态，清空并保存即删除', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
-  const { today } = await import('../../app/core/date.js');
   clickOn({ page: 'violations' });
 
-  typeViolation(roster8[0].id, today, '课堂讲话');
+  typeViolation(roster8[0].id, FIXED_DATE, '课堂讲话');
   // 页内重新渲染一次（草稿存在 state 里，不是靠 DOM 撑着），文字和未保存提示都该还在
   clickOn({ page: 'violations' });
   assert.ok(root.innerHTML.includes('value="课堂讲话"'), '重渲染后未保存的草稿不应丢');
@@ -281,13 +317,13 @@ test('违纪页整批保存成新形态，清空并保存即删除', { skip: SKI
   const stored = JSON.parse(storage.get('teacher-local-violations'));
   assert.equal(stored.length, 1);
   assert.equal(stored[0].studentId, roster8[0].id, '写进去的是稳定学生 ID');
-  assert.equal(stored[0].eventDate, today);
+  assert.equal(stored[0].eventDate, FIXED_DATE);
   assert.equal(stored[0].content, '课堂讲话');
   assert.ok(stored[0].lastRecordedAt && stored[0].createdAt && stored[0].updatedAt, '新形态要带齐三个时间戳');
   assert.ok(!('student' in stored[0]) && !('text' in stored[0]), '旧的 student / text 字段不该再写进去');
   assert.ok(!root.innerHTML.includes('处修改未保存'), '保存后不该还是未保存状态');
 
-  typeViolation(roster8[0].id, today, '');
+  typeViolation(roster8[0].id, FIXED_DATE, '');
   clickOn({ action: 'save-violations' });
   assert.deepEqual(JSON.parse(storage.get('teacher-local-violations')), [], '清空即删除');
 
@@ -296,13 +332,12 @@ test('违纪页整批保存成新形态，清空并保存即删除', { skip: SKI
   assert.ok(!root.innerHTML.includes('value="课堂讲话"'), '删掉之后重新进来不该复活');
 });
 
-test('违纪页有未保存文字时切页面要先确认', { skip: SKIP }, async () => {
+test('违纪页有未保存文字时切页面要先确认', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
-  const { today } = await import('../../app/core/date.js');
   clickOn({ page: 'violations' });
 
-  typeViolation(roster8[1].id, today, '上课说话');
+  typeViolation(roster8[1].id, FIXED_DATE, '上课说话');
   clickOn({ page: 'dashboard' });
   assert.ok(root.innerHTML.includes('有未保存的修改'), '有未保存修改时切页要先问一句');
   assert.ok(root.innerHTML.includes('8班违纪记录'), '确认之前不该已经离开');
@@ -316,7 +351,7 @@ test('违纪页有未保存文字时切页面要先确认', { skip: SKIP }, asyn
   assert.equal(storage.get('teacher-local-violations'), undefined, '放弃修改不该往存储里写东西');
 });
 
-test('作业反馈页固定三条作业，没选之前不显示反馈表', { skip: SKIP }, async () => {
+test('作业反馈页固定三条作业，没选之前不显示反馈表', async () => {
   await bootstrap();
   clickOn({ page: 'homework' });
 
@@ -328,10 +363,9 @@ test('作业反馈页固定三条作业，没选之前不显示反馈表', { ski
   assert.ok(!root.innerHTML.includes('处修改未保存'), '刚打开时没有未保存修改');
 });
 
-test('作业反馈：选中一条即显示全班默认「优」，保存写成两张表', { skip: SKIP }, async () => {
+test('作业反馈：选中一条即显示全班默认「优」，保存写成两张表', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
-  const { today } = await import('../../app/core/date.js');
   clickOn({ page: 'homework' });
 
   // 空作业点「录入反馈」不该进得去（需求 §4.1：空白作业不允许进入反馈表）
@@ -359,7 +393,7 @@ test('作业反馈：选中一条即显示全班默认「优」，保存写成�
   assert.equal(stored.tasks.length, 1);
   assert.equal(stored.tasks[0].slot, 1);
   assert.equal(stored.tasks[0].classNumber, '8');
-  assert.equal(stored.tasks[0].homeworkDate, today);
+  assert.equal(stored.tasks[0].homeworkDate, FIXED_DATE);
   assert.equal(stored.tasks[0].content, '第一课词语抄写');
   assert.ok(stored.tasks[0].id && stored.tasks[0].createdAt && stored.tasks[0].updatedAt, '作业要带齐 id 和两个时间戳');
   assert.equal(stored.feedback.length, roster8.length, '第一次保存把全班按默认「优」写进反馈表');
@@ -378,7 +412,7 @@ test('作业反馈：选中一条即显示全班默认「优」，保存写成�
   assert.ok(root.innerHTML.includes('已有反馈 ' + roster8.length + ' 人'), '状态牌应报出已反馈人数');
 });
 
-test('作业反馈：三条互不影响，清空一条要二次确认后才删', { skip: SKIP }, async () => {
+test('作业反馈：三条互不影响，清空一条要二次确认后才删', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
   clickOn({ page: 'homework' });
@@ -398,7 +432,11 @@ test('作业反馈：三条互不影响，清空一条要二次确认后才删',
   const second = stored.tasks.find((task) => task.slot === 2);
   assert.equal(stored.feedback.filter((row) => row.homeworkId === first.id).length, roster8.length);
   assert.equal(stored.feedback.filter((row) => row.homeworkId === second.id).length, roster8.length);
-  assert.equal(stored.feedback.find((row) => row.homeworkId === first.id && row.studentId === roster8[0].id).rating, '差', '第 1 条的「差」不该被第 2 条覆盖');
+  assert.equal(
+    stored.feedback.find((row) => row.homeworkId === first.id && row.studentId === roster8[0].id).rating,
+    '差',
+    '第 1 条的「差」不该被第 2 条覆盖'
+  );
 
   // 清空第 1 条：先选中它（保存永远只作用于选中的那一条），再有反馈就得先问一句
   clickOn({ action: 'homework-slot:1' });
@@ -423,7 +461,7 @@ test('作业反馈：三条互不影响，清空一条要二次确认后才删',
   assert.equal(stored.feedback.filter((row) => row.homeworkId === second.id).length, roster8.length, '第 2 条的反馈一条不少');
 });
 
-test('作业反馈页有未保存修改时切页面要先确认', { skip: SKIP }, async () => {
+test('作业反馈页有未保存修改时切页面要先确认', async () => {
   await bootstrap();
   clickOn({ page: 'homework' });
   typeHomeworkContent(3, '第三课默写');
@@ -441,15 +479,15 @@ test('作业反馈页有未保存修改时切页面要先确认', { skip: SKIP }
   assert.equal(storage.get('teacher-local-homework'), undefined, '放弃修改不该往存储里写东西');
 });
 
-test('旧版作业反馈数据不丢：认出来但不参与当前显示', { skip: SKIP }, async () => {
+test('旧版作业反馈数据不丢：认出来但不参与当前显示', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
-  storage.set('teacher-local-homework', JSON.stringify({ '8:2026-09-14': { [roster8[0].id]: { rating: '良', note: '旧版备注' } } }));
+  storage.set('teacher-local-homework', JSON.stringify({ [`8:${FIXED_DATE}`]: { [roster8[0].id]: { rating: '良', note: '旧版备注' } } }));
 
   clickOn({ page: 'homework' });
   assert.ok(root.innerHTML.includes('旧版本留下的作业反馈'), '要如实提示有多少条历史反馈没作业内容可挂');
   assert.ok(!root.innerHTML.includes('data-homework-rating'), '孤立的旧反馈不该混进反馈表');
-  assert.equal(JSON.parse(storage.get('teacher-local-homework'))['8:2026-09-14'][roster8[0].id].note, '旧版备注', '看一眼不该改动数据');
+  assert.equal(JSON.parse(storage.get('teacher-local-homework'))[`8:${FIXED_DATE}`][roster8[0].id].note, '旧版备注', '看一眼不该改动数据');
 });
 
 // ── 面谈页渲染测试 ──
@@ -461,7 +499,7 @@ function typeInterviewNote(studentId, value) {
   fire('input', { dataset: { interviewNote: studentId }, value, matches: (s) => s === '[data-interview-note]' });
 }
 
-test('面谈页能渲染全班列表，含勾选框与备注栏', { skip: SKIP }, async () => {
+test('面谈页能渲染全班列表，含勾选框与备注栏', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
 
@@ -476,7 +514,7 @@ test('面谈页能渲染全班列表，含勾选框与备注栏', { skip: SKIP }
   assert.equal(notes.length, roster8.length, '全班每人都该有备注输入框');
 });
 
-test('面谈页勾选+备注保存成 v1 数组，重进读回', { skip: SKIP }, async () => {
+test('面谈页勾选+备注保存成 v1 数组，重进读回', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
   clickOn({ page: 'interviews' });
@@ -505,12 +543,14 @@ test('面谈页勾选+备注保存成 v1 数组，重进读回', { skip: SKIP },
   assert.ok(root.innerHTML.includes('value="表现积极"'), '重新进来应读回已保存的备注');
 });
 
-test('面谈页已面谈学生有 checked，未面谈没有', { skip: SKIP }, async () => {
+test('面谈页已面谈学生有 checked，未面谈没有', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
-  const { today } = await import('../../app/core/date.js');
+  const { state } = await import('../../app/core/state.js');
   const { INTERVIEW_SCHEMA, mondayOf, normalizeInterviews, planSaveInterview } = await import('../../app/domain/interviews.js');
-  const weekStart = mondayOf(today);
+  // 把面谈页的工作周也钉在固定周一上，否则页面按真实「今天」算周一，种下去的记录读不回来
+  const weekStart = mondayOf(FIXED_DATE);
+  state.interviewWeekStart = weekStart;
   let data = normalizeInterviews(null);
   data = planSaveInterview(data, {
     classNumber: '8',
@@ -532,12 +572,13 @@ test('面谈页已面谈学生有 checked，未面谈没有', { skip: SKIP }, as
   assert.ok(!around.includes('checked'), '未面谈学生不应有 checked');
 });
 
-test('面谈页取消勾选保留备注，清空备注+未勾选=删除', { skip: SKIP }, async () => {
+test('面谈页取消勾选保留备注，清空备注+未勾选=删除', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
-  const { today } = await import('../../app/core/date.js');
+  const { state } = await import('../../app/core/state.js');
   const { INTERVIEW_SCHEMA, mondayOf, normalizeInterviews, planSaveInterview } = await import('../../app/domain/interviews.js');
-  const weekStart = mondayOf(today);
+  const weekStart = mondayOf(FIXED_DATE);
+  state.interviewWeekStart = weekStart;
   // 预存一条已面谈记录
   let data = normalizeInterviews(null);
   data = planSaveInterview(data, {
@@ -567,7 +608,7 @@ test('面谈页取消勾选保留备注，清空备注+未勾选=删除', { skip
   assert.equal(stored.interviews.length, 0, '未勾选+备注空应删除记录');
 });
 
-test('面谈页有未保存修改时切页面要先确认', { skip: SKIP }, async () => {
+test('面谈页有未保存修改时切页面要先确认', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
   clickOn({ page: 'interviews' });
@@ -588,7 +629,7 @@ test('面谈页有未保存修改时切页面要先确认', { skip: SKIP }, asyn
 
 // ── 每日待办页渲染测试 ──
 
-test('待办页渲染 14 天窗口和待确认区', { skip: SKIP }, async () => {
+test('待办页渲染 14 天窗口和待确认区', async () => {
   await bootstrap();
   clickOn({ page: 'todos' });
   assert.ok(root.innerHTML.includes('每日待办'), '应渲染待办页标题');
@@ -598,9 +639,8 @@ test('待办页渲染 14 天窗口和待确认区', { skip: SKIP }, async () => 
   assert.ok(root.innerHTML.includes('（今天）'), '今天应有标记');
 });
 
-test('待办页逾期未完成自动移入待确认', { skip: SKIP }, async () => {
+test('待办页逾期未完成自动移入待确认', async () => {
   await bootstrap();
-  const { today } = await import('../../app/core/date.js');
   // 预存一条昨天的未完成待办（旧形态）
   storage.set('teacher-local-todos', JSON.stringify([{ id: 'old-1', text: '过期待办', due: '2020-01-01', done: false }]));
 
@@ -611,7 +651,7 @@ test('待办页逾期未完成自动移入待确认', { skip: SKIP }, async () =
   assert.equal(stored[0].status, 'pending');
 });
 
-test('待办页新增待办并勾选完成', { skip: SKIP }, async () => {
+test('待办页新增待办并勾选完成', async () => {
   await bootstrap();
   clickOn({ page: 'todos' });
 
@@ -631,7 +671,7 @@ test('待办页新增待办并勾选完成', { skip: SKIP }, async () => {
   assert.ok(stored[0].completedAt, '完成应有 completedAt');
 });
 
-test('待办页选日期安排待确认事项', { skip: SKIP }, async () => {
+test('待办页选日期安排待确认事项', async () => {
   await bootstrap();
   const { today } = await import('../../app/core/date.js');
   storage.set(
@@ -641,7 +681,8 @@ test('待办页选日期安排待确认事项', { skip: SKIP }, async () => {
   clickOn({ page: 'todos' });
   assert.ok(root.innerHTML.includes('data-todo-schedule="todo-y"'), '待确认项应有安排日期下拉');
 
-  // 选今天作为日期
+  // 选今天作为日期：这里必须用真实「今天」，因为下拉里只列今天起 14 天，
+  // inWindow 也按同一个 today 判定；断言的是「写进去的等于选中的」，不依赖具体日期值。
   fire('change', { dataset: { todoSchedule: 'todo-y' }, value: today, matches: (s) => s === '[data-todo-schedule]' });
   const stored = JSON.parse(storage.get('teacher-local-todos'));
   assert.equal(stored[0].plannedDate, today, '安排后应写入计划日期');
@@ -649,7 +690,7 @@ test('待办页选日期安排待确认事项', { skip: SKIP }, async () => {
 
 // ── 资源库（L5）与备课中心渲染测试 ──
 
-test('资源库两个标签页：常用网站与工作文件', { skip: SKIP }, async () => {
+test('资源库两个标签页：常用网站与工作文件', async () => {
   await bootstrap();
   clickOn({ page: 'resources' });
   assert.ok(root.innerHTML.includes('常用网站'), '默认应显示常用网站标签');
@@ -663,7 +704,7 @@ test('资源库两个标签页：常用网站与工作文件', { skip: SKIP }, a
   assert.ok(root.innerHTML.includes('搜索文件名'), '应有搜索框');
 });
 
-test('备课中心未配置时入口置灰', { skip: SKIP }, async () => {
+test('备课中心未配置时入口置灰', async () => {
   await bootstrap();
   clickOn({ page: 'prep' });
   assert.ok(root.innerHTML.includes('备课中心'), '应渲染备课中心页');
@@ -672,7 +713,7 @@ test('备课中心未配置时入口置灰', { skip: SKIP }, async () => {
   assert.ok(root.innerHTML.includes('disabled'), '打开按钮应置灰');
 });
 
-test('备课中心配置合法 https 后按钮可点', { skip: SKIP }, async () => {
+test('备课中心配置合法 https 后按钮可点', async () => {
   await bootstrap();
   clickOn({ page: 'prep' });
   // 直接写入配置并重渲染（storage 存的是 JSON 序列化值）
@@ -685,7 +726,7 @@ test('备课中心配置合法 https 后按钮可点', { skip: SKIP }, async () 
 
 // ── L6 打印 / CSV 导出 / 数据体检渲染测试 ──
 
-test('听写、单元测试、违纪三页都有打印与导出入口', { skip: SKIP }, async () => {
+test('听写、单元测试、违纪三页都有打印与导出入口', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
   // 先 seed 一条测试和一条听写，让「打印/导出」按钮渲染出来
@@ -722,10 +763,9 @@ test('听写、单元测试、违纪三页都有打印与导出入口', { skip: 
   assert.ok(root.innerHTML.includes('data-action="print-violations"'), '违纪页应有打印按钮');
 });
 
-test('数据与备份页概览表带最后修改与占用列', { skip: SKIP }, async () => {
+test('数据与备份页概览表带最后修改与占用列', async () => {
   await bootstrap();
   clickOn({ page: 'data' });
   assert.ok(root.innerHTML.includes('最后修改'), '概览表应有最后修改列');
   assert.ok(root.innerHTML.includes('占用'), '概览表应有占用列');
 });
-

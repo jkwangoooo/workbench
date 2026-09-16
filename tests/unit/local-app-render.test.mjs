@@ -130,6 +130,8 @@ async function bootstrap() {
     selectedTest: null,
     planClass: '8',
     resourceTab: 'links',
+    fileSearch: '',
+    fileCategory: '',
     groupLayout: null,
     seatingLayout: null,
     pendingImport: null,
@@ -174,19 +176,21 @@ function typeFilter(value) {
 
 // 输入法组字中的 input 事件：fire 会把参数当成 event.target，而这里要看的是 event.isComposing，
 // 所以直接把完整事件对象递给 input 处理器。
-function composeFilterInput(value) {
+function composeInput(selector, value) {
   for (const handler of listeners.get('input') || []) {
-    handler({ target: { value, matches: (selector) => selector === '[data-violation-filter]' }, isComposing: true });
+    handler({ target: { value, matches: (candidate) => candidate === selector }, isComposing: true });
   }
 }
 
 // 筛选靠切换行上的 hidden 实现（不重建 DOM，否则输入法组字会断线），
 // 所以「显示了几行」要数没带 hidden 的那些。
-function shownRowCount() {
-  const all = root.innerHTML.match(/data-violation-row="[^"]+"/g) || [];
-  const hidden = root.innerHTML.match(/data-violation-row="[^"]+" hidden/g) || [];
+function shownCount(marker) {
+  const all = root.innerHTML.match(new RegExp(`${marker}="[^"]+"`, 'g')) || [];
+  const hidden = root.innerHTML.match(new RegExp(`${marker}="[^"]+" hidden`, 'g')) || [];
   return all.length - hidden.length;
 }
+const shownRowCount = () => shownCount('data-violation-row');
+const shownFileCount = () => shownCount('data-file-row');
 
 // 违纪页的输入框事件：只需要 dataset、value、matches、closest 这几样。
 function typeViolation(studentId, date, value) {
@@ -497,7 +501,7 @@ test('定位框在输入法组字期间不筛，上屏后才筛', async () => {
   clickOn({ page: 'violations' });
 
   // 组字中：value 里是拼音串。这时筛了会把名单清空，更糟的是打断组字，汉字永远上不了屏。
-  composeFilterInput('zhangsan');
+  composeInput('[data-violation-filter]', 'zhangsan');
   assert.equal(state.violationsFilter, '', '组字期间不该把拼音串当成筛选词');
   assert.equal(shownRowCount(), roster8.length, '组字期间名单不动');
 
@@ -881,6 +885,32 @@ test('资源库两个标签页：常用网站与工作文件', async () => {
   assert.ok(root.innerHTML.includes('上传工作文件'), '应有上传区');
   assert.ok(root.innerHTML.includes('选择文件'), '应有文件选择入口');
   assert.ok(root.innerHTML.includes('搜索文件名'), '应有搜索框');
+});
+
+test('资源库文件搜索靠切显隐，且输入法组字期间不筛', async () => {
+  await bootstrap();
+  const { state } = await import('../../app/core/state.js');
+  storage.set(
+    'teacher-local-files',
+    JSON.stringify([
+      { id: 'f1', originalName: '第一课教案.docx', category: '教案', mimeType: 'application/msword', sizeBytes: 1024, uploadedAt: '2026-09-14T08:00:00.000Z' },
+      { id: 'f2', originalName: '期中试卷.pdf', category: '试卷', mimeType: 'application/pdf', sizeBytes: 2048, uploadedAt: '2026-09-14T08:00:00.000Z' }
+    ])
+  );
+
+  clickOn({ page: 'resources' });
+  clickOn({ resourceTab: 'files' });
+  assert.equal(shownFileCount(), 2, '不打字时两个文件都显示');
+
+  // 组字中：拼音串不能拿去筛，更不能在这时重建节点（重建会让组字中断）
+  composeInput('[data-file-search]', 'jiaoan');
+  assert.equal(state.fileSearch, '', '组字期间不该把拼音串当成搜索词');
+  assert.equal(shownFileCount(), 2, '组字期间列表不动');
+
+  // 上屏：compositionend 才带着真正的汉字
+  fire('compositionend', { value: '教案', matches: (selector) => selector === '[data-file-search]' });
+  assert.equal(state.fileSearch, '教案', '上屏后才筛');
+  assert.equal(shownFileCount(), 1, '收敛到匹配的那一个');
 });
 
 test('备课中心未配置时入口置灰', async () => {

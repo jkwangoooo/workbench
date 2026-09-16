@@ -8,7 +8,7 @@ import { fmtDateTime } from '../core/date.js';
 import { attr, button, empty, esc, head, panel } from '../core/dom.js';
 import { state } from '../core/state.js';
 import { read } from '../core/storage.js';
-import { formatSize, isPreviewable, normalizeCategory } from '../domain/files.js';
+import { formatSize, filterFiles, isPreviewable, normalizeCategory } from '../domain/files.js';
 
 /** 常用网站列表。 */
 function linksPanel() {
@@ -53,34 +53,28 @@ function uploadPanel() {
   );
 }
 
+// 文件列表的每一行都常驻 DOM，搜索只切 hidden，不重建节点。
+// 重建节点会把正在用输入法组字的搜索框换掉：组字当场中断，拼音串留在框里，中文打不进去（同 §5.8 那类坑）。
+function fileRow(file, visible) {
+  const previewable = isPreviewable(file.mimeType);
+  const actions =
+    (previewable ? button('预览', `preview-file:${file.id}`, 'small') : '') +
+    button('下载', `download-file:${file.id}`, 'small') +
+    button('删除', `delete-file:${file.id}`, 'small danger');
+  return `<div class="local-item" data-file-row="${attr(file.id)}"${visible ? '' : ' hidden'}><div><strong>${esc(file.originalName)}</strong><small>${formatSize(file.sizeBytes)} · ${esc(file.category || '未分类')} · ${esc(fmtDateTime(file.uploadedAt))}</small></div>${actions}</div>`;
+}
+
 /** 文件列表面板。 */
 function filesPanel() {
   const files = read(LOCAL_KEYS.files, []);
-  const search = (state.fileSearch || '').trim().toLowerCase();
-  const filterCat = normalizeCategory(state.fileCategory || '');
-
-  const filtered = files.filter((f) => {
-    if (search && !String(f.originalName).toLowerCase().includes(search)) return false;
-    if (filterCat && normalizeCategory(f.category) !== filterCat) return false;
-    return true;
-  });
-
-  const rows = filtered.length
-    ? `<div class="local-list">${filtered
-        .map((f) => {
-          const previewable = isPreviewable(f.mimeType);
-          const actions =
-            (previewable ? button('预览', `preview-file:${f.id}`, 'small') : '') +
-            button('下载', `download-file:${f.id}`, 'small') +
-            button('删除', `delete-file:${f.id}`, 'small danger');
-          return `<div class="local-item"><div><strong>${esc(f.originalName)}</strong><small>${formatSize(f.sizeBytes)} · ${esc(f.category || '未分类')} · ${esc(fmtDateTime(f.uploadedAt))}</small></div>${actions}</div>`;
-        })
-        .join('')}</div>`
-    : empty(files.length ? '没有匹配的文件' : '还没有上传过文件');
+  const shown = filterFiles(files, state.fileSearch, state.fileCategory);
+  const visible = new Set(shown.map((file) => file.id));
+  const rows = files.map((file) => fileRow(file, visible.has(file.id))).join('');
+  const emptyNode = `<div class="local-empty" data-file-empty${shown.length ? ' hidden' : ''}>${esc(files.length ? '没有匹配的文件' : '还没有上传过文件')}</div>`;
 
   return panel(
     '工作文件',
-    `<div class="local-field"><label>搜索文件名</label><input class="local-input" type="text" data-file-search value="${attr(state.fileSearch || '')}" placeholder="按文件名搜索"></div>${rows}`,
+    `<div class="local-field"><label>搜索文件名</label><input class="local-input" type="text" data-file-search value="${attr(state.fileSearch || '')}" placeholder="按文件名搜索"></div><div class="local-list" data-file-list>${rows}${emptyNode}</div>`,
     'local-span-12'
   );
 }

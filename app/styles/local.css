@@ -438,7 +438,9 @@ button {
    行和空态本来都是 display:grid / flex，所以必须显式把 hidden 压回去。 */
 .local-violation-row[hidden],
 .local-violation-list [data-violation-empty][hidden],
-.local-filter-note[hidden] {
+.local-filter-note[hidden],
+.local-item[hidden],
+.local-list [data-file-empty][hidden] {
   display: none;
 }
 /* 姓名同时是打开个人历史的入口：按按钮复位成文字样子，虚线底提示可点 */

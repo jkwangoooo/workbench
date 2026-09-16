@@ -41,7 +41,7 @@ import { interviewPage, interviewClass, interviewView } from './pages/interviews
 import { todosPage } from './pages/todos.js';
 import { normalizeTodos, inWindow } from './domain/todos.js';
 import { prepWorkflowUrl } from './domain/prep.js';
-import { findDuplicate, validateFile } from './domain/files.js';
+import { filterFiles, findDuplicate, validateFile } from './domain/files.js';
 import { deleteFile as deleteFileBlob, exportFiles, getFile, importFiles, putFile } from './io/indexeddb.js';
 import { shell } from './ui/shell.js';
 
@@ -468,6 +468,25 @@ function clearViolationFilter() {
   const input = document.querySelector('[data-violation-filter]');
   if (input) input.value = '';
   paintViolationFilter();
+}
+
+// 资源库的「搜索文件名」同理：只切行的显隐，不重渲染。
+function applyFileSearch(input) {
+  state.fileSearch = input.value;
+  paintFileSearch();
+}
+
+function paintFileSearch() {
+  const list = document.querySelector('[data-file-list]');
+  if (!list) return render();
+  const files = read(LOCAL_KEYS.files, []);
+  const visible = new Set(filterFiles(files, state.fileSearch, state.fileCategory).map((file) => file.id));
+  for (const node of list.querySelectorAll('[data-file-row]')) node.hidden = !visible.has(node.dataset.fileRow);
+  const emptyNode = list.querySelector('[data-file-empty]');
+  if (emptyNode) {
+    emptyNode.hidden = visible.size > 0;
+    emptyNode.textContent = files.length ? '没有匹配的文件' : '还没有上传过文件';
+  }
 }
 
 // —— 作业反馈页（需求 §4）：三条作业各自独立，内容 + 该条反馈一起提交 ——
@@ -1040,6 +1059,7 @@ document.addEventListener('keydown', (event) => {
 document.addEventListener('compositionend', (event) => {
   const el = event.target;
   if (el?.matches?.('[data-violation-filter]')) applyViolationFilter(el);
+  else if (el?.matches?.('[data-file-search]')) applyFileSearch(el);
 });
 document.addEventListener('change', (event) => {
   const el = event.target;
@@ -1087,21 +1107,22 @@ document.addEventListener('change', (event) => {
     });
   }
 });
+// 输入法组字期间的 input 事件：这时 value 里是拼音串（"zhangsan"），既不能拿去筛选，
+// 更不能在这时改 DOM —— 节点一换，组字当场中断，汉字永远上不了屏。
+const isComposingInput = (event) => Boolean(event.isComposing) || event.inputType === 'insertCompositionText';
+
 document.addEventListener('input', (event) => {
   const el = event.target;
   if (el.matches?.('[data-violation-student]')) editViolation(el);
-  // 输入法组字期间不筛：这时 value 里是拼音串（"zhangsan"），筛了只会把名单清空；
-  // 等 compositionend 拿到真正的汉字再筛。
   else if (el.matches?.('[data-violation-filter]')) {
-    if (!event.isComposing && event.inputType !== 'insertCompositionText') applyViolationFilter(el);
+    if (!isComposingInput(event)) applyViolationFilter(el);
   } else if (el.matches?.('[data-homework-content]')) editHomeworkContent(el);
   else if (el.matches?.('[data-homework-note]')) editHomeworkNote(el);
   else if (el.matches?.('[data-interview-note]')) editInterviewNote(el);
   else if (el.matches?.('[data-file-category]')) {
     state.fileCategory = el.value;
   } else if (el.matches?.('[data-file-search]')) {
-    state.fileSearch = el.value;
-    render();
+    if (!isComposingInput(event)) applyFileSearch(el);
   }
 });
 document.addEventListener('submit', (event) => {

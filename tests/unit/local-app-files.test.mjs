@@ -4,6 +4,7 @@ import { strict as assert } from 'node:assert';
 import {
   ALLOWED_EXTENSIONS,
   MAX_FILE_SIZE,
+  filterFiles,
   findDuplicate,
   formatSize,
   guessMime,
@@ -112,5 +113,64 @@ describe('备课中心 URL 校验', () => {
   it('剥离查询参数（不携带 token/学生数据）', () => {
     const result = prepWorkflowUrl('https://prep.example.com?token=secret&student=1');
     assert.equal(result.url, 'https://prep.example.com/');
+  });
+});
+
+describe('工作文件列表筛选（资源库 → 工作文件）', () => {
+  const files = [
+    { id: 'a', originalName: '第一课教案.docx', category: '教案' },
+    { id: 'b', originalName: '第二课教案.docx', category: '教案' },
+    { id: 'c', originalName: '期中试卷.pdf', category: '试卷' },
+    { id: 'd', originalName: 'Lesson-Plan.docx', category: '' }
+  ];
+
+  it('按文件名包含匹配，忽略大小写与首尾空白', () => {
+    assert.deepEqual(
+      filterFiles(files, '教案', '').map((f) => f.id),
+      ['a', 'b']
+    );
+    assert.deepEqual(
+      filterFiles(files, '  教案  ', '').map((f) => f.id),
+      ['a', 'b']
+    );
+    assert.deepEqual(
+      filterFiles(files, 'lesson', '').map((f) => f.id),
+      ['d']
+    );
+    assert.deepEqual(
+      filterFiles(files, 'LESSON-PLAN', '').map((f) => f.id),
+      ['d']
+    );
+  });
+
+  it('两个条件都为空时返回全部，且不改动入参', () => {
+    assert.deepEqual(
+      filterFiles(files, '', '').map((f) => f.id),
+      ['a', 'b', 'c', 'd']
+    );
+    assert.deepEqual(
+      filterFiles(files, '   ', '   ').map((f) => f.id),
+      ['a', 'b', 'c', 'd']
+    );
+    assert.deepEqual(
+      files.map((f) => f.id),
+      ['a', 'b', 'c', 'd']
+    );
+  });
+
+  it('分类是精确匹配，与文件名条件同时生效', () => {
+    assert.deepEqual(
+      filterFiles(files, '', '试卷').map((f) => f.id),
+      ['c']
+    );
+    assert.deepEqual(filterFiles(files, '教案', '试卷'), [], '两个条件是与关系');
+    assert.deepEqual(
+      filterFiles(files, '第', '教案').map((f) => f.id),
+      ['a', 'b']
+    );
+  });
+
+  it('匹配不到时返回空数组', () => {
+    assert.deepEqual(filterFiles(files, '查无此文件', ''), []);
   });
 });

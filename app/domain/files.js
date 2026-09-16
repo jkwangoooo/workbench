@@ -75,6 +75,17 @@ export function findDuplicate(files, category, name) {
   return files.find((f) => normalizeCategory(f.category) === cat && normalizedName(f.originalName) === norm) || null;
 }
 
+/** 文件列表筛选：文件名包含匹配（忽略大小写与首尾空白）+ 分类精确匹配；两个条件都为空就返回全部。 */
+export function filterFiles(files, search, category) {
+  const needle = normalizedName(search);
+  const cat = normalizeCategory(category);
+  return files.filter((file) => {
+    if (needle && !normalizedName(file.originalName).includes(needle)) return false;
+    if (cat && normalizeCategory(file.category) !== cat) return false;
+    return true;
+  });
+}
+
 /** 从扩展名猜 MIME（File 对象通常自带 type，Blob 可能没有）。 */
 export function guessMime(ext) {
   const table = {

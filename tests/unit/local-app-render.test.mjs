@@ -901,6 +901,9 @@ test('资源库文件搜索靠切显隐，且输入法组字期间不筛', async
   clickOn({ page: 'resources' });
   clickOn({ resourceTab: 'files' });
   assert.equal(shownFileCount(), 2, '不打字时两个文件都显示');
+  // 资源库的行是「内容块 + 若干按钮」，必须带 actions 修饰类；
+  // 不加的话会套用看板那套 3.5rem 首列，文件名被挤成竖排。
+  assert.ok(root.innerHTML.includes('class="local-item actions" data-file-row'), '文件行要用四列布局的修饰类');
 
   // 组字中：拼音串不能拿去筛，更不能在这时重建节点（重建会让组字中断）
   composeInput('[data-file-search]', 'jiaoan');

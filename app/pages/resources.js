@@ -23,7 +23,7 @@ function linksPanel() {
       ? `<div class="local-list">${sorted
           .map(
             (item) =>
-              `<div class="local-item"><div><strong>${esc(item.name)}${item.pinned ? ' <span class="local-pin">置顶</span>' : ''}</strong><small>${esc(item.category || '未分类')} · ${esc(item.note || '')}</small></div><a href="${attr(item.url)}" target="_blank" rel="noreferrer">打开</a>${button(item.pinned ? '取消置顶' : '置顶', `toggle-pin:${item.id}`, 'small')}${button('删除', `delete-resource:${item.id}`, 'small danger')}</div>`
+              `<div class="local-item actions"><div><strong>${esc(item.name)}${item.pinned ? ' <span class="local-pin">置顶</span>' : ''}</strong><small>${esc(item.category || '未分类')} · ${esc(item.note || '')}</small></div><a href="${attr(item.url)}" target="_blank" rel="noreferrer">打开</a>${button(item.pinned ? '取消置顶' : '置顶', `toggle-pin:${item.id}`, 'small')}${button('删除', `delete-resource:${item.id}`, 'small danger')}</div>`
           )
           .join('')}</div>`
       : empty('还没有常用网址'),
@@ -61,7 +61,7 @@ function fileRow(file, visible) {
     (previewable ? button('预览', `preview-file:${file.id}`, 'small') : '') +
     button('下载', `download-file:${file.id}`, 'small') +
     button('删除', `delete-file:${file.id}`, 'small danger');
-  return `<div class="local-item" data-file-row="${attr(file.id)}"${visible ? '' : ' hidden'}><div><strong>${esc(file.originalName)}</strong><small>${formatSize(file.sizeBytes)} · ${esc(file.category || '未分类')} · ${esc(fmtDateTime(file.uploadedAt))}</small></div>${actions}</div>`;
+  return `<div class="local-item actions" data-file-row="${attr(file.id)}"${visible ? '' : ' hidden'}><div><strong>${esc(file.originalName)}</strong><small>${formatSize(file.sizeBytes)} · ${esc(file.category || '未分类')} · ${esc(fmtDateTime(file.uploadedAt))}</small></div>${actions}</div>`;
 }
 
 /** 文件列表面板。 */

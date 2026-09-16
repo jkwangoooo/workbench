@@ -299,6 +299,11 @@ button {
   border-color: #8dc4ce;
   background: var(--accent-soft);
 }
+/* 资源库的两种行是「内容块 + 若干按钮」，和看板那种「时段标签 + 内容 + 圆点」不是同一套列宽。
+   不加这条覆盖，内容块会落进 3.5rem 那一列，文件名被挤成竖排。 */
+.local-item.actions {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
 .local-period {
   color: var(--muted);
   font-size: 11px;

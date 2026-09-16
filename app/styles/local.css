@@ -434,6 +434,13 @@ button {
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
+/* 筛选靠切换 hidden 实现（不重建 DOM，否则输入法组字会断线）。
+   行和空态本来都是 display:grid / flex，所以必须显式把 hidden 压回去。 */
+.local-violation-row[hidden],
+.local-violation-list [data-violation-empty][hidden],
+.local-filter-note[hidden] {
+  display: none;
+}
 /* 姓名同时是打开个人历史的入口：按按钮复位成文字样子，虚线底提示可点 */
 .local-violation-name {
   padding: 0;

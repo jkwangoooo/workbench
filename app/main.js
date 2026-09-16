@@ -431,22 +431,43 @@ function openViolationHistoryDate(date) {
 
 // —— 违纪页「定位学生」：50 人名单靠打字收敛，不打字就显示全班 ——
 
-// 筛选只改「显示哪些行」，但要走整页重渲染才能把行增减掉。
-// 重渲染会把输入框换掉，所以渲染完必须把焦点和光标还给定位框，否则打一个字就断线。
+// 筛选只切行的 hidden，**绝不重渲染**。
+// 整页重渲染会把输入框节点换掉：正在用输入法组字时，这一下会让组字当场中断，
+// 拼音串（"zhangsan"）被当成真文字留在框里，汉字永远上不了屏。L1 在置顶那里踩过同一个坑（§5.8）。
+// 顺带还保住了列表的滚动位置。
+function paintViolationFilter() {
+  const list = document.querySelector('[data-violation-list]');
+  // 花名册为空时没有名单容器、也就没有行可切显隐，这时退回整页渲染。
+  // 只要容器在，就绝不重渲染 —— 重渲染会换掉输入框节点，输入法组字会断线。
+  if (!list) return render();
+  const view = violationsView();
+  const wanted = new Set(view.shown.map((student) => student.id));
+  for (const node of list.querySelectorAll('[data-violation-row]')) node.hidden = !wanted.has(node.dataset.violationRow);
+
+  const emptyNode = list.querySelector('[data-violation-empty]');
+  if (emptyNode) {
+    emptyNode.hidden = view.shown.length > 0;
+    emptyNode.textContent = `没有名字含「${view.filter}」的学生`;
+  }
+
+  const note = document.querySelector('[data-violation-filter-note]');
+  if (note) {
+    note.hidden = !view.filter;
+    const count = note.querySelector('[data-violation-filter-count]');
+    if (count) count.textContent = view.filter ? `正在筛选「${view.filter}」· 显示 ${view.shown.length} 人` : '';
+  }
+}
+
 function applyViolationFilter(input) {
-  const caret = input.selectionStart;
   state.violationsFilter = input.value;
-  render();
-  const next = document.querySelector('[data-violation-filter]');
-  if (!next) return;
-  next.focus();
-  if (typeof caret === 'number' && typeof next.setSelectionRange === 'function') next.setSelectionRange(caret, caret);
+  paintViolationFilter();
 }
 
 function clearViolationFilter() {
-  if (!state.violationsFilter) return render();
   state.violationsFilter = '';
-  render();
+  const input = document.querySelector('[data-violation-filter]');
+  if (input) input.value = '';
+  paintViolationFilter();
 }
 
 // —— 作业反馈页（需求 §4）：三条作业各自独立，内容 + 该条反馈一起提交 ——
@@ -1014,6 +1035,12 @@ document.addEventListener('keydown', (event) => {
   if (state.violationsHistoryStudent) return closeViolationHistory();
   if (state.violationsFilter) return clearViolationFilter();
 });
+// 输入法上屏：compositionend 才是拿到汉字的时刻，这时候才筛。
+// 有些浏览器在 compositionend 之后不再补发 input，所以不能只靠 input 里那个 isComposing 判断。
+document.addEventListener('compositionend', (event) => {
+  const el = event.target;
+  if (el?.matches?.('[data-violation-filter]')) applyViolationFilter(el);
+});
 document.addEventListener('change', (event) => {
   const el = event.target;
   if (el.matches('[data-roster-class]')) {
@@ -1063,8 +1090,11 @@ document.addEventListener('change', (event) => {
 document.addEventListener('input', (event) => {
   const el = event.target;
   if (el.matches?.('[data-violation-student]')) editViolation(el);
-  else if (el.matches?.('[data-violation-filter]')) applyViolationFilter(el);
-  else if (el.matches?.('[data-homework-content]')) editHomeworkContent(el);
+  // 输入法组字期间不筛：这时 value 里是拼音串（"zhangsan"），筛了只会把名单清空；
+  // 等 compositionend 拿到真正的汉字再筛。
+  else if (el.matches?.('[data-violation-filter]')) {
+    if (!event.isComposing && event.inputType !== 'insertCompositionText') applyViolationFilter(el);
+  } else if (el.matches?.('[data-homework-content]')) editHomeworkContent(el);
   else if (el.matches?.('[data-homework-note]')) editHomeworkNote(el);
   else if (el.matches?.('[data-interview-note]')) editInterviewNote(el);
   else if (el.matches?.('[data-file-category]')) {

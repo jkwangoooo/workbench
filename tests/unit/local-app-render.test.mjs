@@ -167,9 +167,25 @@ const pressKey = (key) => {
   for (const handler of listeners.get('keydown') || []) handler({ key, preventDefault() {} });
 };
 
-// 违纪页「定位学生」输入框：只需要 dataset、value、selectionStart、matches 这几样。
+// 违纪页「定位学生」输入框：只需要 dataset、value、matches 这几样。
 function typeFilter(value) {
   fire('input', { dataset: {}, value, selectionStart: value.length, matches: (selector) => selector === '[data-violation-filter]' });
+}
+
+// 输入法组字中的 input 事件：fire 会把参数当成 event.target，而这里要看的是 event.isComposing，
+// 所以直接把完整事件对象递给 input 处理器。
+function composeFilterInput(value) {
+  for (const handler of listeners.get('input') || []) {
+    handler({ target: { value, matches: (selector) => selector === '[data-violation-filter]' }, isComposing: true });
+  }
+}
+
+// 筛选靠切换行上的 hidden 实现（不重建 DOM，否则输入法组字会断线），
+// 所以「显示了几行」要数没带 hidden 的那些。
+function shownRowCount() {
+  const all = root.innerHTML.match(/data-violation-row="[^"]+"/g) || [];
+  const hidden = root.innerHTML.match(/data-violation-row="[^"]+" hidden/g) || [];
+  return all.length - hidden.length;
 }
 
 // 违纪页的输入框事件：只需要 dataset、value、matches、closest 这几样。
@@ -438,10 +454,9 @@ test('违纪页定位框把名单收敛，但保存仍然是全班', async () =>
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
   const { state } = await import('../../app/core/state.js');
-  const rowCount = () => (root.innerHTML.match(/data-violation-student=/g) || []).length;
 
   clickOn({ page: 'violations' });
-  assert.equal(rowCount(), roster8.length, '不打字时铺全班');
+  assert.equal(shownRowCount(), roster8.length, '不打字时全班都显示');
   assert.ok(root.innerHTML.includes('>序号<'), '表头要有序号列');
   assert.ok(root.innerHTML.includes('<span class="local-violation-index">1</span>'), '行首要有花名册序号');
 
@@ -455,10 +470,11 @@ test('违纪页定位框把名单收敛，但保存仍然是全班', async () =>
 
   typeFilter(target.name);
   assert.equal(state.violationsFilter, target.name, '筛选词只放在会话状态里');
-  assert.equal(rowCount(), 1, '只剩命中的那一行');
+  assert.equal(shownRowCount(), 1, '只剩命中的那一行显示');
   assert.ok(root.innerHTML.includes('正在筛选'), '要有筛选状态条');
   assert.ok(root.innerHTML.includes('显示 1 人'), '要说清显示了几人');
   assert.ok(root.innerHTML.includes('保存仍然是全班'), '要说清保存范围没变');
+  assert.ok(!root.innerHTML.includes('data-violation-filter-note hidden'), '筛选生效时状态条要露出来');
 
   // 筛着一个人改文字再保存：被筛掉的那名学生一个字都不能动
   typeViolation(target.id, FIXED_DATE, '乙改过了');
@@ -470,19 +486,36 @@ test('违纪页定位框把名单收敛，但保存仍然是全班', async () =>
 
   clickOn({ action: 'clear-violation-filter' });
   assert.equal(state.violationsFilter, '', '清空筛选');
-  assert.equal(rowCount(), roster8.length, '回到全班');
+  assert.equal(shownRowCount(), roster8.length, '回到全班');
+});
+
+test('定位框在输入法组字期间不筛，上屏后才筛', async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  const { state } = await import('../../app/core/state.js');
+
+  clickOn({ page: 'violations' });
+
+  // 组字中：value 里是拼音串。这时筛了会把名单清空，更糟的是打断组字，汉字永远上不了屏。
+  composeFilterInput('zhangsan');
+  assert.equal(state.violationsFilter, '', '组字期间不该把拼音串当成筛选词');
+  assert.equal(shownRowCount(), roster8.length, '组字期间名单不动');
+
+  // 上屏：compositionend 才带着真正的汉字（fire 收的是 event.target，不是整个事件对象）
+  fire('compositionend', { value: roster8[1].name, matches: (selector) => selector === '[data-violation-filter]' });
+  assert.equal(state.violationsFilter, roster8[1].name, '上屏后才筛');
+  assert.equal(shownRowCount(), 1, '收敛到命中的那一行');
 });
 
 test('ESC 先关抽屉，抽屉关着才清筛选', async () => {
   await bootstrap();
   const { roster8 } = await import('../../app/core/roster.js');
   const { state } = await import('../../app/core/state.js');
-  const rowCount = () => (root.innerHTML.match(/data-violation-student=/g) || []).length;
 
   clickOn({ page: 'violations' });
   typeFilter(roster8[1].name);
   assert.equal(state.violationsFilter, roster8[1].name);
-  assert.equal(rowCount(), 1);
+  assert.equal(shownRowCount(), 1);
 
   clickOn({ action: 'toggle-violation-history', violationHistory: roster8[1].id });
   assert.ok(root.innerHTML.includes('local-drawer'), '抽屉应已打开');
@@ -490,11 +523,11 @@ test('ESC 先关抽屉，抽屉关着才清筛选', async () => {
   pressKey('Escape');
   assert.equal(state.violationsHistoryStudent, null, 'ESC 先关抽屉');
   assert.equal(state.violationsFilter, roster8[1].name, '关抽屉时不该顺手把筛选也清掉');
-  assert.equal(rowCount(), 1, '筛选还在');
+  assert.equal(shownRowCount(), 1, '筛选还在');
 
   pressKey('Escape');
   assert.equal(state.violationsFilter, '', '抽屉没开了，ESC 才清筛选');
-  assert.equal(rowCount(), roster8.length, '回到全班');
+  assert.equal(shownRowCount(), roster8.length, '回到全班');
 });
 
 test('作业反馈页固定三条作业，没选之前不显示反馈表', async () => {

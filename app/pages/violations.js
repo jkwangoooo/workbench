@@ -47,10 +47,11 @@ export function violationsView() {
 
 // 学生姓名是打开个人历史的入口：标记用 data-action，载荷用 data-violation-history，
 // 两个属性名分开，才不会和输入框的 data-violation-student 在事件冒泡里搅在一起（§5.9）。
-function row(student, date, value, active) {
+// visible=false 的行留在 DOM 里只加 hidden：筛选靠切换显隐，绝不重建节点（见下面 grid 的说明）。
+function row(student, date, value, active, visible) {
   const filled = String(value ?? '').trim() ? ' filled' : '';
   const name = `<button type="button" class="local-violation-name${active ? ' active' : ''}" title="查看 ${attr(student.name)} 的违纪历史" data-action="toggle-violation-history" data-violation-history="${attr(student.id)}">${esc(student.name)}</button>`;
-  return `<div class="local-violation-row${filled}" data-violation-row="${attr(student.id)}"><span class="local-violation-index">${rosterIndex.get(student.id) ?? ''}</span>${name}<input class="local-input local-violation-input" type="text" value="${attr(value)}" data-violation-student="${attr(student.id)}" data-violation-date="${attr(date)}" aria-label="${attr(student.name)} 违纪记录"></div>`;
+  return `<div class="local-violation-row${filled}" data-violation-row="${attr(student.id)}"${visible ? '' : ' hidden'}><span class="local-violation-index">${rosterIndex.get(student.id) ?? ''}</span>${name}<input class="local-input local-violation-input" type="text" value="${attr(value)}" data-violation-student="${attr(student.id)}" data-violation-date="${attr(date)}" aria-label="${attr(student.name)} 违纪记录"></div>`;
 }
 
 export function violationsPage() {
@@ -75,19 +76,26 @@ export function violationsPage() {
   );
 }
 
+// 全班每一行都始终留在 DOM 里，筛选只切 hidden，不重建节点。
+// 重建节点会把正在组字的输入框换掉，中文输入法会当场断线（与 §5.8「别搬 DOM 节点」同一类坑，L1 踩过一次）。
+// 这条规则对筛选框自己也成立：只要不重渲染，输入框就永远不丢焦点、不丢光标、不丢组字状态。
 function grid(view) {
   if (!view.ordered.length) return empty('花名册里没有 8 班学生，请先检查学生数据。');
   const headRow = '<div class="local-violation-head"><span>序号</span><span>学生</span><span>违纪文字</span></div>';
-  const rows = view.shown.length
-    ? view.shown.map((student) => row(student, view.date, view.texts[student.id], view.historyStudent?.id === student.id)).join('')
-    : empty(`没有名字含「${view.filter}」的学生`);
-  return `${headRow}<div class="local-violation-list" data-violation-list>${rows}</div>`;
+  const wanted = new Set(view.shown.map((student) => student.id));
+  const rows = view.ordered
+    .map((student) => row(student, view.date, view.texts[student.id], view.historyStudent?.id === student.id, wanted.has(student.id)))
+    .join('');
+  const noMatch = `<div class="local-empty" data-violation-empty${view.shown.length ? ' hidden' : ''}>${esc(`没有名字含「${view.filter}」的学生`)}</div>`;
+  return `${headRow}<div class="local-violation-list" data-violation-list>${rows}${noMatch}</div>`;
 }
 
-// 筛选生效时把状态摆明：显示几条、以及「保存仍然是全班」——否则很容易误以为只保存筛出来的这几个人。
+// 筛选状态条常驻在 DOM 里，没筛选时整体隐藏 —— 这样筛选只要改文字和 hidden，不用插删节点。
+// 文案里那句「保存仍然是全班」是必须的：筛着三个人点保存时，很容易以为只存这三个人。
 function filterNote(view) {
-  if (!view.filter) return '';
-  return `<div class="local-filter-note"><span>正在筛选「${esc(view.filter)}」· 显示 ${view.shown.length} 人</span><span class="local-filter-hint">筛选只影响显示，保存仍然是全班</span>${button('清空筛选', 'clear-violation-filter', 'small')}</div>`;
+  const active = Boolean(view.filter);
+  const text = active ? `正在筛选「${view.filter}」· 显示 ${view.shown.length} 人` : '';
+  return `<div class="local-filter-note" data-violation-filter-note${active ? '' : ' hidden'}><span data-violation-filter-count>${esc(text)}</span><span class="local-filter-hint">筛选只影响显示，保存仍然是全班</span>${button('清空筛选', 'clear-violation-filter', 'small')}</div>`;
 }
 
 // 个人违纪历史用右侧抽屉，不用行内展开：这页是 50 行的可滚动长表，展开一行会把下方内容整体推下去，

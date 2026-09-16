@@ -138,6 +138,8 @@ async function bootstrap() {
     violationsDraft: null,
     violationsSessionOrder: [],
     violationsError: null,
+    violationsHistoryStudent: null,
+    violationsFilter: '',
     interviewClass: '8',
     interviewWeekStart: null,
     interviewDraft: null,
@@ -158,6 +160,17 @@ function fire(type, target) {
 }
 
 const clickOn = (dataset, extra = {}) => fire('click', { closest: () => ({ dataset, classList: { contains: () => false }, ...extra }) });
+
+// 键盘事件不走 fire：fire 会把传进去的对象当成 event.target，
+// 而键盘处理要看的是 event.key，所以这里直接把事件对象递给 keydown 处理器。
+const pressKey = (key) => {
+  for (const handler of listeners.get('keydown') || []) handler({ key, preventDefault() {} });
+};
+
+// 违纪页「定位学生」输入框：只需要 dataset、value、selectionStart、matches 这几样。
+function typeFilter(value) {
+  fire('input', { dataset: {}, value, selectionStart: value.length, matches: (selector) => selector === '[data-violation-filter]' });
+}
 
 // 违纪页的输入框事件：只需要 dataset、value、matches、closest 这几样。
 function typeViolation(studentId, date, value) {
@@ -349,6 +362,139 @@ test('违纪页有未保存文字时切页面要先确认', async () => {
   clickOn({ action: 'discard-edits' });
   assert.ok(root.innerHTML.includes('今日看板'), '放弃修改后应真的离开');
   assert.equal(storage.get('teacher-local-violations'), undefined, '放弃修改不该往存储里写东西');
+});
+
+test('违纪页点学生姓名打开个人历史抽屉，只列这个学生的记录', async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  const { state } = await import('../../app/core/state.js');
+  storage.set(
+    'teacher-local-violations',
+    JSON.stringify([
+      { id: 'v1', studentId: roster8[0].id, eventDate: FIXED_DATE, content: '课堂讲话' },
+      { id: 'v2', studentId: roster8[0].id, eventDate: '2026-09-10', content: '作业没交' },
+      { id: 'v3', studentId: roster8[1].id, eventDate: '2026-09-11', content: '别人的事' }
+    ])
+  );
+
+  clickOn({ page: 'violations' });
+  assert.ok(!root.innerHTML.includes('local-drawer'), '刚打开时不该有抽屉');
+
+  clickOn({ action: 'toggle-violation-history', violationHistory: roster8[0].id });
+  assert.equal(state.violationsHistoryStudent, roster8[0].id, '抽屉记住看的是哪个学生');
+  assert.ok(root.innerHTML.includes('local-drawer'), '点姓名应打开抽屉');
+  assert.ok(root.innerHTML.includes('作业没交'), '抽屉里应列出该生其他日期的记录');
+  assert.ok(root.innerHTML.includes('2026年09月10日'), '历史按日期显示');
+  assert.ok(root.innerHTML.indexOf('2026年09月14日') < root.innerHTML.indexOf('2026年09月10日'), '最近的日期排在最前');
+  assert.ok(!root.innerHTML.includes('别人的事'), '不该掺进其他学生的记录');
+  assert.ok(root.innerHTML.includes('不做统计与排名'), '抽屉里要说清只做回顾');
+  assert.ok(!root.innerHTML.includes('共'), '不做条数汇总');
+
+  clickOn({ action: 'toggle-violation-history', violationHistory: roster8[0].id });
+  assert.equal(state.violationsHistoryStudent, null, '再点同一个姓名应收起');
+  assert.ok(!root.innerHTML.includes('local-drawer'));
+});
+
+test('违纪页历史抽屉可以跳到那一天，也能用 ESC 收起', async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  const { state } = await import('../../app/core/state.js');
+  storage.set('teacher-local-violations', JSON.stringify([{ id: 'v1', studentId: roster8[0].id, eventDate: '2026-09-10', content: '作业没交' }]));
+
+  clickOn({ page: 'violations' });
+  clickOn({ action: 'toggle-violation-history', violationHistory: roster8[0].id });
+  assert.ok(root.innerHTML.includes('data-action="open-violation-date:2026-09-10"'), '每条历史都要能跳到那天');
+
+  pressKey('Escape');
+  assert.equal(state.violationsHistoryStudent, null, 'ESC 应收起抽屉');
+  assert.ok(!root.innerHTML.includes('local-drawer'));
+  assert.equal(state.violationsDate, FIXED_DATE, 'ESC 只收抽屉，不该顺手换日期');
+
+  clickOn({ action: 'toggle-violation-history', violationHistory: roster8[0].id });
+  clickOn({ action: 'open-violation-date:2026-09-10' });
+  assert.equal(state.violationsDate, '2026-09-10', '应切到那一天');
+  assert.equal(state.violationsHistoryStudent, null, '跳日期后抽屉应收起');
+  assert.ok(root.innerHTML.includes('value="2026-09-10"'), '日期框应切到那一天');
+  assert.ok(root.innerHTML.includes('value="作业没交"'), '那天的文字应预填进输入框');
+});
+
+test('历史抽屉里跳日期也走未保存守卫，不会把没保存的文字丢掉', async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  const { state } = await import('../../app/core/state.js');
+  storage.set('teacher-local-violations', JSON.stringify([{ id: 'v1', studentId: roster8[0].id, eventDate: '2026-09-10', content: '作业没交' }]));
+
+  clickOn({ page: 'violations' });
+  typeViolation(roster8[1].id, FIXED_DATE, '还没保存的话');
+  clickOn({ action: 'toggle-violation-history', violationHistory: roster8[0].id });
+  clickOn({ action: 'open-violation-date:2026-09-10' });
+
+  assert.ok(root.innerHTML.includes('有未保存的违纪文字'), '有未保存文字时应先问一句');
+  assert.equal(state.violationsDate, FIXED_DATE, '确认之前不该换日期');
+  assert.ok(root.innerHTML.includes('value="还没保存的话"'), '未保存的文字要还在');
+});
+
+test('违纪页定位框把名单收敛，但保存仍然是全班', async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  const { state } = await import('../../app/core/state.js');
+  const rowCount = () => (root.innerHTML.match(/data-violation-student=/g) || []).length;
+
+  clickOn({ page: 'violations' });
+  assert.equal(rowCount(), roster8.length, '不打字时铺全班');
+  assert.ok(root.innerHTML.includes('>序号<'), '表头要有序号列');
+  assert.ok(root.innerHTML.includes('<span class="local-violation-index">1</span>'), '行首要有花名册序号');
+
+  // 先让两名学生各有文字并保存
+  const first = roster8[0];
+  const target = roster8[1];
+  typeViolation(first.id, FIXED_DATE, '甲的事');
+  typeViolation(target.id, FIXED_DATE, '乙的事');
+  clickOn({ action: 'save-violations' });
+  assert.equal(JSON.parse(storage.get('teacher-local-violations')).length, 2);
+
+  typeFilter(target.name);
+  assert.equal(state.violationsFilter, target.name, '筛选词只放在会话状态里');
+  assert.equal(rowCount(), 1, '只剩命中的那一行');
+  assert.ok(root.innerHTML.includes('正在筛选'), '要有筛选状态条');
+  assert.ok(root.innerHTML.includes('显示 1 人'), '要说清显示了几人');
+  assert.ok(root.innerHTML.includes('保存仍然是全班'), '要说清保存范围没变');
+
+  // 筛着一个人改文字再保存：被筛掉的那名学生一个字都不能动
+  typeViolation(target.id, FIXED_DATE, '乙改过了');
+  clickOn({ action: 'save-violations' });
+  const stored = JSON.parse(storage.get('teacher-local-violations'));
+  assert.equal(stored.length, 2, '筛选只是视图，保存仍然是全班');
+  assert.equal(stored.find((item) => item.studentId === first.id).content, '甲的事', '被筛掉的学生不该受影响');
+  assert.equal(stored.find((item) => item.studentId === target.id).content, '乙改过了');
+
+  clickOn({ action: 'clear-violation-filter' });
+  assert.equal(state.violationsFilter, '', '清空筛选');
+  assert.equal(rowCount(), roster8.length, '回到全班');
+});
+
+test('ESC 先关抽屉，抽屉关着才清筛选', async () => {
+  await bootstrap();
+  const { roster8 } = await import('../../app/core/roster.js');
+  const { state } = await import('../../app/core/state.js');
+  const rowCount = () => (root.innerHTML.match(/data-violation-student=/g) || []).length;
+
+  clickOn({ page: 'violations' });
+  typeFilter(roster8[1].name);
+  assert.equal(state.violationsFilter, roster8[1].name);
+  assert.equal(rowCount(), 1);
+
+  clickOn({ action: 'toggle-violation-history', violationHistory: roster8[1].id });
+  assert.ok(root.innerHTML.includes('local-drawer'), '抽屉应已打开');
+
+  pressKey('Escape');
+  assert.equal(state.violationsHistoryStudent, null, 'ESC 先关抽屉');
+  assert.equal(state.violationsFilter, roster8[1].name, '关抽屉时不该顺手把筛选也清掉');
+  assert.equal(rowCount(), 1, '筛选还在');
+
+  pressKey('Escape');
+  assert.equal(state.violationsFilter, '', '抽屉没开了，ESC 才清筛选');
+  assert.equal(rowCount(), roster8.length, '回到全班');
 });
 
 test('作业反馈页固定三条作业，没选之前不显示反馈表', async () => {

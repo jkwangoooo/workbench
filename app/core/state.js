@@ -37,6 +37,8 @@ export const state = {
   violationsDraft: null,
   violationsSessionOrder: [],
   violationsError: null,
+  violationsHistoryStudent: null,
+  violationsFilter: '',
   pendingNav: null,
   modal: null,
   // 资源库工作文件（需求 §4）：待上传清单（内存态，不落盘）、文件分类/搜索筛选

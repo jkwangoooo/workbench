@@ -97,6 +97,18 @@ export function recordsForDate(records, date) {
   return map;
 }
 
+// 某名学生的违纪历史，按事件日期倒序（最近的在前）。
+// 同一天的多条在 normalizeRecords 里已经合并成一条，所以一天最多出现一次；
+// 认不出学生（没有 studentId）或没有日期的记录不属于任何学生，天然被排除在外。
+// 只读：返回的是新数组，不改入参，也不做任何计数或排名。
+export function historyFor(records, studentId) {
+  const id = text(studentId);
+  if (!id) return [];
+  return records
+    .filter((record) => record.studentId === id && record.eventDate)
+    .sort((a, b) => b.eventDate.localeCompare(a.eventDate) || text(b.lastRecordedAt).localeCompare(text(a.lastRecordedAt)));
+}
+
 // 显示顺序（需求 §3.3）：本次会话刚编辑过的最前 → 当日已有记录的按 last_recorded_at 倒序 →
 // 其余按花名册原始顺序。同一批一起保存的记录时间戳相同，退化为花名册顺序，结果始终确定。
 export function orderStudents(savedByStudent, sessionOrder = [], students = roster8) {
@@ -111,6 +123,18 @@ export function orderStudents(savedByStudent, sessionOrder = [], students = rost
     })
     .sort((a, b) => a.group - b.group || a.key - b.key || a.tie - b.tie)
     .map((row) => row.student);
+}
+
+// 在 50 人名单里快速定位某个学生：按姓名做包含匹配（不是只匹配开头），关键词去掉首尾空白后为空就返回全班。
+// 只决定「显示哪些行」，不参与保存 —— 保存永远按全班草稿走，筛着三个人保存也是全班一起落盘。
+export function filterStudents(students, keyword) {
+  const needle = text(keyword).toLowerCase();
+  if (!needle) return students.slice();
+  return students.filter((student) =>
+    String(student.name || '')
+      .toLowerCase()
+      .includes(needle)
+  );
 }
 
 // 当天草稿：全班每人的当前文字（已保存的原样带入，其余为空）。

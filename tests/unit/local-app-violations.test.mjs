@@ -18,7 +18,7 @@ globalThis.window = {
 };
 
 const { roster8 } = await import('../../app/core/roster.js');
-const { buildDraft, diffDay, normalizeRecord, normalizeRecords, orderStudents, pendingChanges, recordsForDate, unattachedRecords } =
+const { buildDraft, diffDay, filterStudents, historyFor, normalizeRecord, normalizeRecords, orderStudents, pendingChanges, recordsForDate, unattachedRecords } =
   await import('../../app/domain/violations.js');
 
 const [JIA, YI, BING] = roster8.map((student) => student.id);
@@ -159,4 +159,96 @@ test('保存后同学生同日只剩一条，唯一约束不会被破坏', () =>
   const sameDay = outcome.records.filter((item) => item.studentId === JIA && item.eventDate === DAY);
   assert.equal(sameDay.length, 1);
   assert.equal(sameDay[0].content, '一');
+});
+
+test('个人历史只取这个学生的记录，按日期倒序（最近的在前）', () => {
+  const records = normalizeRecords([
+    { id: 'r1', studentId: JIA, eventDate: '2026-09-10', content: '周一迟到' },
+    { id: 'r2', studentId: JIA, eventDate: '2026-09-14', content: '上课讲话' },
+    { id: 'r3', studentId: YI, eventDate: '2026-09-14', content: '乙的事' }
+  ]);
+
+  const history = historyFor(records, JIA);
+  assert.deepEqual(
+    history.map((item) => item.eventDate),
+    ['2026-09-14', '2026-09-10']
+  );
+  assert.deepEqual(
+    history.map((item) => item.content),
+    ['上课讲话', '周一迟到']
+  );
+  assert.equal(
+    history.some((item) => item.studentId !== JIA),
+    false,
+    '不该掺进别人的记录'
+  );
+  assert.deepEqual(
+    historyFor(records, YI).map((item) => item.content),
+    ['乙的事']
+  );
+});
+
+test('个人历史排除认不出学生的记录，只读且不改动入参', () => {
+  const records = normalizeRecords([
+    { id: 'x', date: DAY, student: '查无此人', text: '???' },
+    { id: 'y', student: JIA, text: '没有日期' },
+    { id: 'z', date: DAY, student: '甲', text: '迟到' }
+  ]);
+  const idsBefore = records.map((item) => item.id);
+
+  assert.deepEqual(
+    historyFor(records, JIA).map((item) => item.content),
+    ['迟到'],
+    '认不出学生和没有日期的记录都不属于任何学生'
+  );
+  assert.deepEqual(historyFor(records, ''), [], '没有学生 ID 就没有历史');
+  assert.deepEqual(historyFor(records, 'local-8-nobody'), [], '名单外的 ID 查不到东西');
+  assert.deepEqual(
+    records.map((item) => item.id),
+    idsBefore,
+    '排序不该就地改动入参'
+  );
+});
+
+test('定位学生：包含匹配、忽略大小写与首尾空白，空关键词就是全班', () => {
+  const students = [
+    { id: 'a', name: '张小明' },
+    { id: 'b', name: '李小张' },
+    { id: 'c', name: '王芳' },
+    { id: 'd', name: 'Alice' }
+  ];
+
+  assert.deepEqual(
+    filterStudents(students, '张').map((item) => item.id),
+    ['a', 'b'],
+    '包含匹配，不是只匹配开头'
+  );
+  assert.deepEqual(
+    filterStudents(students, '  张  ').map((item) => item.id),
+    ['a', 'b'],
+    '首尾空白忽略'
+  );
+  assert.deepEqual(
+    filterStudents(students, 'alice').map((item) => item.id),
+    ['d'],
+    '忽略大小写'
+  );
+  assert.deepEqual(filterStudents(students, '查无此人'), []);
+  assert.deepEqual(
+    filterStudents(students, '').map((item) => item.id),
+    ['a', 'b', 'c', 'd'],
+    '空关键词就是全班'
+  );
+  assert.deepEqual(
+    filterStudents(students, '   ').map((item) => item.id),
+    ['a', 'b', 'c', 'd'],
+    '只有空白也算空'
+  );
+  const returned = filterStudents(students, '');
+  assert.notEqual(returned, students, '返回新数组');
+  assert.deepEqual(
+    students.map((item) => item.id),
+    ['a', 'b', 'c', 'd'],
+    '不改动入参'
+  );
 });

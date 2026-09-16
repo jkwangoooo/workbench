@@ -275,6 +275,7 @@ function blockedFromLeaving(targetPage) {
 function goToPage(page) {
   if (blockedFromLeaving(page)) return;
   state.page = page;
+  state.violationsHistoryStudent = null; // 历史抽屉是浮层，换页就收起
   render();
 }
 
@@ -285,6 +286,7 @@ function switchViolationDate(date) {
   state.violationsDraft = null;
   state.violationsSessionOrder = [];
   state.violationsError = null;
+  state.violationsHistoryStudent = null;
   render();
 }
 
@@ -303,6 +305,7 @@ function applyPendingNav() {
   state.violationsDraft = null;
   state.violationsSessionOrder = [];
   state.violationsError = null;
+  state.violationsHistoryStudent = null;
   state.homeworkDraft = null;
   state.homeworkError = null;
   if (nav?.kind === 'page') state.page = nav.page;
@@ -340,7 +343,8 @@ function editViolation(input) {
   state.violationsError = null;
 
   // 输入即置顶，但只在「从没内容变成有内容」那一刻算一次：反复判定会让行在打字过程中来回跳。
-  if (wasEmpty && value.trim()) {
+  // 筛选生效时不置顶——在刚收敛出来的几行里再跳一下，只会把人晃晕。
+  if (wasEmpty && value.trim() && !state.violationsFilter) {
     const order = state.violationsSessionOrder;
     const at = order.indexOf(studentId);
     if (at >= 0) order.splice(at, 1);
@@ -394,6 +398,54 @@ function resetViolations() {
   state.violationsSessionOrder = [];
   state.violationsError = null;
   toast(pending ? `已放弃 ${pending} 处未保存修改` : '没有未保存的修改');
+  render();
+}
+
+// —— 违纪个人历史（只读抽屉）：点学生姓名打开，看清这个孩子这段时间被记过什么 ——
+
+// 打开后把焦点交给抽屉，关闭后把焦点还给那个学生名：
+// 键盘用户不会因为一次开合就丢掉自己在 50 人名单里的位置。
+function toggleViolationHistory(studentId) {
+  if (state.violationsHistoryStudent === studentId) return closeViolationHistory();
+  state.violationsHistoryStudent = studentId;
+  render();
+  const drawer = document.querySelector('.local-drawer');
+  if (drawer) drawer.focus();
+}
+
+function closeViolationHistory() {
+  const studentId = state.violationsHistoryStudent;
+  state.violationsHistoryStudent = null;
+  render();
+  if (!studentId) return;
+  const trigger = [...document.querySelectorAll('[data-violation-history]')].find((node) => node.dataset.violationHistory === studentId);
+  if (trigger) trigger.focus();
+}
+
+// 从历史里跳到某一天：先收起抽屉，再走和日期框完全相同的那条路径，
+// 所以「有没保存的文字就先问一句」这条守卫照旧生效，不会把正在编辑的内容丢掉。
+function openViolationHistoryDate(date) {
+  state.violationsHistoryStudent = null;
+  requestViolationDate(date);
+}
+
+// —— 违纪页「定位学生」：50 人名单靠打字收敛，不打字就显示全班 ——
+
+// 筛选只改「显示哪些行」，但要走整页重渲染才能把行增减掉。
+// 重渲染会把输入框换掉，所以渲染完必须把焦点和光标还给定位框，否则打一个字就断线。
+function applyViolationFilter(input) {
+  const caret = input.selectionStart;
+  state.violationsFilter = input.value;
+  render();
+  const next = document.querySelector('[data-violation-filter]');
+  if (!next) return;
+  next.focus();
+  if (typeof caret === 'number' && typeof next.setSelectionRange === 'function') next.setSelectionRange(caret, caret);
+}
+
+function clearViolationFilter() {
+  if (!state.violationsFilter) return render();
+  state.violationsFilter = '';
   render();
 }
 
@@ -845,6 +897,10 @@ document.addEventListener('click', (event) => {
   if (action === 'save-violations') return saveViolations();
   if (action === 'reset-violations') return resetViolations();
   if (action === 'violations-today') return requestViolationDate(today);
+  if (action === 'toggle-violation-history') return toggleViolationHistory(target.dataset.violationHistory);
+  if (action === 'close-violation-history') return closeViolationHistory();
+  if (action === 'clear-violation-filter') return clearViolationFilter();
+  if (action.startsWith('open-violation-date:')) return openViolationHistoryDate(action.slice(20));
   if (action === 'keep-editing') {
     state.pendingNav = null;
     return closeModal();
@@ -950,6 +1006,14 @@ document.addEventListener('click', (event) => {
     if (form) form.requestSubmit();
   }
 });
+// ESC 在违纪页按「先关上层、再清筛选」的顺序处理：
+// 历史抽屉是浮层，先关它；抽屉没开的时候，ESC 才用来把名单还原成全班。
+// 只处理这两件事，不顺手改弹窗的键盘行为（那是另一件事）。
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  if (state.violationsHistoryStudent) return closeViolationHistory();
+  if (state.violationsFilter) return clearViolationFilter();
+});
 document.addEventListener('change', (event) => {
   const el = event.target;
   if (el.matches('[data-roster-class]')) {
@@ -999,6 +1063,7 @@ document.addEventListener('change', (event) => {
 document.addEventListener('input', (event) => {
   const el = event.target;
   if (el.matches?.('[data-violation-student]')) editViolation(el);
+  else if (el.matches?.('[data-violation-filter]')) applyViolationFilter(el);
   else if (el.matches?.('[data-homework-content]')) editHomeworkContent(el);
   else if (el.matches?.('[data-homework-note]')) editHomeworkNote(el);
   else if (el.matches?.('[data-interview-note]')) editInterviewNote(el);

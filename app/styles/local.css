@@ -385,6 +385,10 @@ button {
 .local-homework-bar .local-field {
   width: 190px;
 }
+/* 定位框比日期框宽一点：要能看清自己打了几个字 */
+.local-violation-bar .local-field-filter {
+  width: 230px;
+}
 .local-violation-tip,
 .local-homework-tip {
   flex: 1 1 260px;
@@ -398,13 +402,17 @@ button {
   top: 0;
   z-index: 1;
   display: grid;
-  grid-template-columns: 148px minmax(0, 1fr);
+  grid-template-columns: 44px 148px minmax(0, 1fr);
   gap: 10px;
   padding: 8px 10px;
   color: var(--muted);
   background: var(--soft);
   border-bottom: 1px solid var(--line);
   font-size: 12px;
+}
+/* 序号是数字列，表头跟着数字一起右对齐，两行才对得上 */
+.local-violation-head > span:first-child {
+  text-align: right;
 }
 .local-violation-list {
   display: grid;
@@ -415,15 +423,34 @@ button {
 }
 .local-violation-row {
   display: grid;
-  grid-template-columns: 148px minmax(0, 1fr);
+  grid-template-columns: 44px 148px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
 }
+/* 序号是名单里唯一的稳定锚点：排序规则会把行序打乱，靠它才认得出是第几个人 */
+.local-violation-index {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+/* 姓名同时是打开个人历史的入口：按按钮复位成文字样子，虚线底提示可点 */
 .local-violation-name {
+  padding: 0;
   overflow: hidden;
-  font-size: 13px;
+  color: inherit;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  background: none;
+  border: 0;
+  border-bottom: 1px dashed var(--strong);
+  font-size: 13px;
+}
+.local-violation-name:hover,
+.local-violation-name.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 .local-violation-input {
   height: 32px;
@@ -441,6 +468,108 @@ button {
 }
 .local-violation-meta:empty {
   display: none;
+}
+
+/* 筛选生效时的状态条：说清「显示几条」和「保存仍然是全班」，免得误以为只存了筛出来的这几个人 */
+.local-filter-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  color: var(--accent);
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  font-size: 12px;
+}
+.local-filter-hint {
+  color: var(--muted);
+}
+
+/* 个人违纪历史抽屉：列表不动，详情从右侧滑出。
+   用抽屉而不是行内展开，是因为这页是 50 行的可滚动长表，展开一行会把下方内容整体推下去。 */
+.local-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  background: rgba(19, 31, 39, 0.28);
+}
+.local-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 420px);
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  box-shadow: -14px 0 40px rgba(12, 29, 40, 0.14);
+}
+.local-drawer:focus {
+  outline: none;
+}
+.local-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.local-drawer-head h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.local-drawer-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.local-drawer-body {
+  flex: 1;
+  padding: 14px 20px 20px;
+  overflow: auto;
+}
+.local-history {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.local-history-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+}
+.local-history-when {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.local-history-date {
+  font-size: 13px;
+  font-weight: 600;
+}
+.local-history-week {
+  color: var(--muted);
+  font-size: 12px;
+}
+.local-history-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+.local-history-item .local-button {
+  justify-self: start;
 }
 
 /* 作业反馈页（需求 §4）：上面三条作业内容，下面选中那条的全班反馈表 */
@@ -812,6 +941,8 @@ button {
   .local-head,
   .local-toolbar,
   .local-tabs,
+  .local-drawer,
+  .local-drawer-backdrop,
   .no-print {
     display: none !important;
   }
@@ -998,7 +1129,7 @@ button {
   }
   .local-violation-head,
   .local-violation-row {
-    grid-template-columns: 104px minmax(0, 1fr);
+    grid-template-columns: 36px 104px minmax(0, 1fr);
   }
   .local-violation-bar .local-field,
   .local-homework-bar .local-field {
